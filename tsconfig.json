@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "lib": ["esnext", "dom"],
+    "target": "esnext",
+    "strict": true,
+    "module": "Preserve",
+    "moduleResolution": "Bundler"
+  }
+}
