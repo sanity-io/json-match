@@ -1,4 +1,4 @@
-# JSONMatch
+# `@sanity/json-match`
 
 A powerful, lightweight implementation of the JSONMatch path expression language used by Sanity.io for document querying and manipulation.
 

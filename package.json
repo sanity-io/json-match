@@ -1,10 +1,14 @@
 {
   "name": "@sanity/json-match",
   "version": "1.0.0",
-  "description": "",
+  "description": "A light-weight and lazy JavaScript implementation of JSONMatch",
   "keywords": [
     "JSONMatch",
-    "sanity"
+    "sanity",
+    "json-match",
+    "groq",
+    "mutations",
+    "patches"
   ],
   "bugs": {
     "url": "https://github.com/sanity-io/json-match/issues"
@@ -42,6 +46,7 @@
     "@sanity/browserslist-config": "^1.0.5",
     "@sanity/pkg-utils": "^7.8.4",
     "@sanity/prettier-config": "^1.0.5",
+    "@sanity/semantic-release-preset": "^5.0.0",
     "@vitest/coverage-v8": "^3.2.4",
     "eslint": "^9.29.0",
     "eslint-config-prettier": "^10.1.5",
@@ -49,9 +54,13 @@
     "eslint-plugin-import-x": "^4.15.2",
     "eslint-plugin-prettier": "^5.5.0",
     "eslint-plugin-tsdoc": "^0.4.0",
+    "semantic-release": "^24.2.5",
     "typescript": "^5.3.3",
     "typescript-eslint": "^8.34.1",
     "vitest": "^3.2.4"
   },
-  "packageManager": "pnpm@9.15.9+sha512.68046141893c66fad01c079231128e9afb89ef87e2691d69e4d40eee228988295fd4682181bae55b58418c3a253bde65a505ec7c5f9403ece5cc3cd37dcf2531"
+  "packageManager": "pnpm@9.15.9+sha512.68046141893c66fad01c079231128e9afb89ef87e2691d69e4d40eee228988295fd4682181bae55b58418c3a253bde65a505ec7c5f9403ece5cc3cd37dcf2531",
+  "engines": {
+    "node": ">=18.2"
+  }
 }
