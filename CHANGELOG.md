@@ -5,6 +5,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.1](https://github.com/sanity-io/json-match/compare/v1.0.0...v1.0.1) (2025-06-24)
+
+### Bug Fixes
+
+- make public ([#5](https://github.com/sanity-io/json-match/issues/5)) ([458e64a](https://github.com/sanity-io/json-match/commit/458e64ac1c67bb03e8b0474523f11bb4f32c4cde))
+
 ## 1.0.0 (2025-06-24)
 
 ### Features
