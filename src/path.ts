@@ -1,14 +1,12 @@
 import {
   type ComparisonNode,
   type ExprNode,
-  type IdentifierNode,
   type PathNode,
   type SegmentNode,
   type SubscriptElementNode,
-  type SubscriptNode,
   parse,
 } from './parse'
-import {stringifyPath} from './stringify'
+import {stringifyExpression} from './stringify'
 
 const KEY_PREFIX = 'key:'
 const FIELD_PREFIX = 'field:'
@@ -70,15 +68,15 @@ export function createPathSet(): PathSet {
 
 const INDEX_CACHE = new WeakMap<unknown[], Record<string, number | undefined>>()
 
-/** index tuple maps to a slice node */
 type IndexTuple = [number | '', number | '']
+type KeyedSegment = {_key: string}
 
 /**
  * Represents a single segment in a path.
  *
  * @public
  */
-export type PathSegment = string | number | {_key: string}
+export type PathSegment = string | number | KeyedSegment | IndexTuple
 
 /**
  * Represents a path as an array of segments. This is the format used internally
@@ -88,6 +86,7 @@ export type PathSegment = string | number | {_key: string}
  * - `string`: Object property name
  * - `number`: Array index
  * - `{_key: string}`: Keyed object reference
+ * - `[number | '', number | '']`: Array slices
  *
  * @example
  * ```typescript
@@ -100,23 +99,11 @@ export type PathSegment = string | number | {_key: string}
 export type Path = PathSegment[]
 
 /**
- * Represents a path in the legacy Sanity format that includes index tuples for slicing.
- * This format supports all the capabilities of the Path type plus array slicing operations.
- *
- * @example
- * ```typescript
- * const compatPath: CompatPath = [
- *   'users',        // property access
- *   [1, 3],         // slice [1:3]
- *   { _key: 'profile' }, // keyed object
- *   'email'         // property access
- * ]
- * // Equivalent to: users[1:3][_key=="profile"].email
- * ```
- *
+ * Equivalent to the normal {@link Path} array but without the index tuple.
+ * These paths are meant to locate only one value (no index tuple)
  * @public
  */
-export type CompatPath = (PathSegment | IndexTuple)[]
+export type SingleValuePath = Exclude<PathSegment, IndexTuple>[]
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -125,6 +112,62 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function isKeyedObject(value: unknown): value is {_key: string} {
   return isRecord(value) && typeof (value as any)._key === 'string'
 }
+
+/**
+ * Converts various path formats to their string representation.
+ *
+ * This function serves as a universal converter that can handle different path formats
+ * used in the Sanity ecosystem. It converts JSONMatch AST nodes and Path arrays
+ * to string expressions, while returning string inputs unchanged. This is useful for
+ * normalizing different path representations into a consistent string format.
+ *
+ * @param path - The path to stringify (string expression, Path array, or AST node)
+ * @returns The path as a string expression
+ *
+ * @example
+ * Converting AST nodes to strings:
+ * ```typescript
+ * import { parsePath, stringifyPath } from '@sanity/json-match'
+ *
+ * const ast = parsePath('users[age > 21].name')
+ * const str = stringifyPath(ast) // "users[age>21].name"
+ * ```
+ *
+ * @example
+ *
+ * Converting `Path` arrays to strings:
+ *
+ * ```typescript
+ * const path = ['users', 0, { _key: 'profile' }, 'email']
+ * const str = stringifyPath(path) // 'users[0][_key=="profile"].email'
+ *
+ * const withSlice = ['items', [1, 3], 'name']
+ * const sliceStr = stringifyPath(withSlice) // "items[1:3].name"
+ * ```
+ *
+ * @example
+ * Identity operation on strings:
+ * ```typescript
+ * const existing = 'items[*].name'
+ * const result = stringifyPath(existing) // "items[*].name" (same string)
+ * ```
+ *
+ * @example
+ * Normalizing expressions:
+ * ```typescript
+ * const messy = '  users  [  age  >  21  ] . name  '
+ * const clean = stringifyPath(parsePath(messy)) // "users[age>21].name"
+ * ```
+ *
+ * @public
+ */
+export function stringifyPath(path: ExprNode | Path | string | undefined): string {
+  if (!path) return ''
+  if (typeof path === 'string') return path
+  if (Array.isArray(path)) return stringifyPath(parsePath(path))
+  return stringifyExpression(path)
+}
+
 /**
  * Finds the array index for an object with a specific `_key` property.
  *
@@ -182,25 +225,77 @@ export function getIndexForKey(input: unknown, key: string): number | undefined 
   return lookup[key]
 }
 
-function getExprForPath(path: CompatPath): PathNode {
-  if (path.length === 0) {
-    throw new Error('Path cannot be empty')
-  }
-
-  let result: PathNode | undefined
-  for (let i = 0; i < path.length; i++) {
-    result = {
-      type: 'Path',
-      base: result,
-      recursive: false,
-      segment: createSegmentNodeForPathSegment(path[i]),
+/**
+ * Parses various path formats into a standardized JSONMatch AST.
+ *
+ * This function serves as a universal converter that can handle different path formats
+ * used in the Sanity ecosystem. It converts string expressions, Path arrays,
+ * and returns AST nodes unchanged. This is useful for normalizing different path
+ * representations before processing.
+ *
+ * @param path - The path to parse (string expression, Path array, or existing AST)
+ * @returns The parsed JSONMatch AST node
+ *
+ * @example
+ * Parsing string expressions:
+ * ```typescript
+ * const ast = parsePath('user.profile.email')
+ * // Returns a PathNode AST structure
+ * ```
+ *
+ * @example
+ * Converting Path arrays:
+ * ```typescript
+ * const pathArr = ['users', 0, { _key: 'profile' }, 'email']
+ * const ast = parsePath(pathArr)
+ * // Converts to equivalent AST: users[0][_key=="profile"].email
+ * ```
+ *
+ * @example
+ * Identity operation on AST:
+ * ```typescript
+ * const existingAst = parse('items[*].name')
+ * const result = parsePath(existingAst)
+ * console.log(result === existingAst) // true (same object reference)
+ * ```
+ *
+ * @example
+ * Working with different segment types:
+ * ```typescript
+ * const complexPath = [
+ *   'data',
+ *   'items',
+ *   [1, 5],              // slice
+ *   { _key: 'metadata' }, // keyed object
+ *   'tags',
+ *   0                     // array index
+ * ]
+ * const ast = parsePath(complexPath)
+ * console.log(stringifyPath(ast)) // 'data.items[1:5][_key=="metadata"].tags[0]'
+ * ```
+ *
+ * @public
+ */
+export function parsePath(path: string | Path | ExprNode): ExprNode | undefined {
+  if (Array.isArray(path)) {
+    let result: PathNode | undefined
+    for (const segment of path) {
+      result = {
+        type: 'Path',
+        base: result,
+        recursive: false,
+        segment: convertArraySegmentToSegmentNode(segment),
+      }
     }
+
+    return result
   }
 
-  return result!
+  if (typeof path === 'string') return parse(path)
+  return path
 }
 
-function createSegmentNodeForPathSegment(segment: PathSegment | IndexTuple): SegmentNode {
+function convertArraySegmentToSegmentNode(segment: PathSegment): SegmentNode {
   // This is an IndexTuple - create a slice subscript
   if (Array.isArray(segment)) {
     const [start, end] = segment
@@ -238,225 +333,207 @@ function createSegmentNodeForPathSegment(segment: PathSegment | IndexTuple): Seg
 
   throw new Error(`Unsupported segment type: ${typeof segment}`)
 }
+
 /**
- * Extracts the parent path from a given path expression.
+ * Calculates the depth of a path, which is the number of segments.
  *
- * This function removes the last segment from a path, returning the path to the parent
- * container. It works with string expressions, CompatPath arrays, and parsed AST nodes.
- * Returns `undefined` for root-level paths that have no parent.
+ * This function supports multiple path formats, including string expressions,
+ * Path arrays, and AST nodes. It provides a consistent way to measure the
+ * complexity or length of a path regardless of its representation.
  *
- * @param path - The path to get the parent of (string, CompatPath array, or AST)
- * @returns The parent path as a string, or `undefined` if no parent exists
- *
- * @example
- * String path expressions:
- * ```typescript
- * getParentPath('user.profile.email') // 'user.profile'
- * getParentPath('items[0].name') // 'items[0]'
- * getParentPath('data[*].tags') // 'data[*]'
- * getParentPath('user') // undefined (root level)
- * ```
+ * @param path - The path to measure (string, Path array, or AST node).
+ * @returns The number of segments in the path.
  *
  * @example
- * CompatPath arrays:
+ * Basic usage with different path formats:
  * ```typescript
- * getParentPath(['user', 'profile', 'email']) // 'user.profile'
- * getParentPath(['items', 0, 'name']) // 'items[0]'
- * getParentPath(['user']) // undefined
- * ```
+ * import { getPathDepth } from '@sanity/json-match'
  *
- * @example
- * Complex expressions:
- * ```typescript
- * getParentPath('users[age > 21].profile.email') // 'users[age>21].profile'
- * getParentPath('.bicycle.color') // '@.bicycle'
- * getParentPath('..items.name') // '@..items'
+ * const pathStr = 'user.profile.email'
+ * console.log(getPathDepth(pathStr)) // 3
+ *
+ * const pathArr = ['user', 'profile', 'email']
+ * console.log(getPathDepth(pathArr)) // 3
+ *
+ * const pathWithIndex = 'users[0].name'
+ * console.log(getPathDepth(pathWithIndex)) // 3
  * ```
  *
  * @public
  */
-export function getParentPath(path: string | CompatPath | ExprNode): string | undefined {
-  if (typeof path === 'string') return getParentPath(parse(path))
-  if (Array.isArray(path)) return getParentPath(getExprForPath(path))
-  if (path.type !== 'Path') return undefined
-  if (!path.base) return undefined
-  return stringifyPath(path.base)
+export function getPathDepth(path: string | Path | ExprNode | undefined): number {
+  if (!path) return 0
+  if (Array.isArray(path)) return path.length
+  if (typeof path === 'string') return getPathDepth(parsePath(path))
+  if (path.type !== 'Path') return 0
+  const segmentDepth =
+    path.segment.type === 'Subscript' ||
+    path.segment.type === 'Wildcard' ||
+    path.segment.type === 'Identifier'
+      ? 1
+      : 0
+  return getPathDepth(path.base) + segmentDepth
 }
-/**
- * Adds a new segment to an existing path expression.
- *
- * This function extends a path by appending a new segment. It handles the complexity
- * of different segment types (strings, numbers, keyed objects, slices) and automatically
- * applies the correct syntax (dot notation vs bracket notation). It works with string
- * expressions, CompatPath arrays, and parsed AST nodes.
- *
- * @param path - The base path to extend (string, CompatPath array, or AST)
- * @param segmentToAdd - The segment to add (string, number, keyed object, slice, or PathNode)
- * @returns The extended path as a string
- *
- * @example
- * Adding property segments:
- * ```typescript
- * addPathSegment('user', 'profile') // 'user.profile'
- * addPathSegment('user.profile', 'email') // 'user.profile.email'
- * ```
- *
- * @example
- * Adding array indices:
- * ```typescript
- * addPathSegment('items', 0) // 'items[0]'
- * addPathSegment('users[0]', 'name') // 'users[0].name'
- * ```
- *
- * @example
- * Adding keyed object lookups:
- * ```typescript
- * addPathSegment('users', { _key: 'alice' }) // 'users[_key=="alice"]'
- * addPathSegment('data.items', { _key: 'item-1' }) // 'data.items[_key=="item-1"]'
- * ```
- *
- * @example
- * Adding slices:
- * ```typescript
- * addPathSegment('items', [1, 3]) // 'items[1:3]'
- * addPathSegment('items', [1, '']) // 'items[1:]'
- * addPathSegment('items', ['', 3]) // 'items[:3]'
- * addPathSegment('items', ['', '']) // 'items[*]'
- * ```
- *
- * @example
- * Working with CompatPath arrays:
- * ```typescript
- * const compatPath = ['user', 'profile']
- * addPathSegment(compatPath, 'email') // 'user.profile.email'
- * ```
- *
- * @example
- * Complex chaining:
- * ```typescript
- * let path = 'data'
- * path = addPathSegment(path, 'users')      // 'data.users'
- * path = addPathSegment(path, 0)            // 'data.users[0]'
- * path = addPathSegment(path, 'profile')    // 'data.users[0].profile'
- * path = addPathSegment(path, { _key: 'email' }) // 'data.users[0].profile[_key=="email"]'
- * ```
- *
- * @public
- */
-export function addPathSegment(
-  path: string | CompatPath | ExprNode,
-  segmentToAdd: PathSegment | IndexTuple | PathNode,
-) {
-  if (typeof path === 'string') return addPathSegment(parse(path), segmentToAdd)
-  if (Array.isArray(path)) return addPathSegment(getExprForPath(path), segmentToAdd)
-  if (path.type === 'Number' || path.type === 'String') {
-    throw new Error(`Cannot add path segment to literal ${JSON.stringify(path.value)}`)
-  }
-  if (typeof segmentToAdd === 'string') {
-    const segment: IdentifierNode = {type: 'Identifier', name: segmentToAdd}
-    return addPathSegment(path, {type: 'Path', segment})
-  }
-  if (typeof segmentToAdd === 'number') {
-    const segment: SubscriptNode = {
-      type: 'Subscript',
-      elements: [{type: 'Number', value: segmentToAdd}],
-    }
-    return addPathSegment(path, {type: 'Path', segment})
-  }
-  if (isKeyedObject(segmentToAdd)) {
-    const segment: SubscriptNode = {
-      type: 'Subscript',
-      elements: [
-        {
-          type: 'Comparison',
-          left: {type: 'Path', segment: {type: 'Identifier', name: '_key'}},
-          operator: '==',
-          right: {type: 'String', value: segmentToAdd._key},
-        },
-      ],
-    }
-    return addPathSegment(path, {type: 'Path', segment})
-  }
-  if (Array.isArray(segmentToAdd)) {
-    const [start, end] = segmentToAdd
-    const element: SubscriptElementNode =
-      start === '' && end === ''
-        ? {type: 'Path', segment: {type: 'Wildcard'}}
-        : {type: 'Slice', ...(start !== '' && {start}), ...(end !== '' && {end})}
-    const segment: SubscriptNode = {
-      type: 'Subscript',
-      elements: [element],
-    }
-    return addPathSegment(path, {type: 'Path', segment})
-  }
 
-  // For PathNode segments, we need to find the root node and attach the base path to it
-  function attachBaseToRoot(node: PathNode, newBase: PathNode): PathNode {
-    if (!node.base) {
-      // This is the root node, attach the new base here
-      return {...node, base: newBase}
-    }
-    // Recursively find the root node
-    return {...node, base: attachBaseToRoot(node.base, newBase)}
+function* drop<T>(values: Iterable<T>, count: number) {
+  let index = 0
+  for (const value of values) {
+    if (index >= count) yield value
+    index++
   }
+}
 
-  const mergedPath = attachBaseToRoot(segmentToAdd, path)
-  return stringifyPath(mergedPath)
+function* getSegments(node: PathNode): Generator<PathNode> {
+  if (node.base) yield* getSegments(node.base)
+  if (node.segment.type !== 'This') yield node
 }
 
 /**
- * Parses various path formats into a standardized JSONMatch AST.
+ * Extracts a section of a path and returns it as a new path string.
  *
- * This function serves as a universal converter that can handle different path formats
- * used in the Sanity ecosystem. It converts string expressions, CompatPath arrays,
- * and returns AST nodes unchanged. This is useful for normalizing different path
- * representations before processing.
+ * This function works like `Array.prototype.slice` for path segments. It supports
+ * different path formats and handles both positive and negative indices for slicing.
+ * This is particularly useful for tasks like getting a parent path or isolating
+ * specific parts of a path.
  *
- * @param path - The path to parse (string expression, CompatPath array, or existing AST)
- * @returns The parsed JSONMatch AST node
+ * @param path - The path to slice (string, Path array, or AST node).
+ * @param start - The zero-based index at which to begin extraction. Negative indices are counted from the end.
+ * @param end - The zero-based index before which to end extraction. `slice` extracts up to but not including `end`. Negative indices are counted from the end.
+ * @returns A new string containing the extracted path segments.
  *
  * @example
- * Parsing string expressions:
+ * Basic slicing:
  * ```typescript
- * const ast = parsePath('user.profile.email')
- * // Returns a PathNode AST structure
+ * import { slicePath } from '@sanity/json-match'
+ *
+ * const path = 'a.b.c.d.e'
+ * console.log(slicePath(path, 1, 4)) // "b.c.d"
+ * console.log(slicePath(path, 2))    // "c.d.e"
  * ```
  *
  * @example
- * Converting CompatPath arrays:
+ * Getting the parent path:
  * ```typescript
- * const compatPath = ['users', 0, { _key: 'profile' }, 'email']
- * const ast = parsePath(compatPath)
- * // Converts to equivalent AST: users[0][_key=="profile"].email
+ * import { slicePath, getPathDepth } from '@sanity/json-match'
+ *
+ * const fullPath = 'user.profile.settings.theme'
+ *
+ * // Using negative indices:
+ * const parentPathNegative = slicePath(fullPath, 0, -1)
+ * console.log(parentPathNegative) // "user.profile.settings"
  * ```
  *
  * @example
- * Identity operation on AST:
+ * Getting the last segment of a path:
  * ```typescript
- * const existingAst = parse('items[*].name')
- * const result = parsePath(existingAst)
- * console.log(result === existingAst) // true (same object reference)
- * ```
+ * import { slicePath } from '@sanity/json-match'
  *
- * @example
- * Working with different segment types:
- * ```typescript
- * const complexPath = [
- *   'data',
- *   'items',
- *   [1, 5],              // slice
- *   { _key: 'metadata' }, // keyed object
- *   'tags',
- *   0                     // array index
- * ]
- * const ast = parsePath(complexPath)
- * console.log(stringifyPath(ast)) // 'data.items[1:5][_key=="metadata"].tags[0]'
+ * const path = 'user.profile.email'
+ * const lastSegment = slicePath(path, -1)
+ * console.log(lastSegment) // "email"
+ *
+ * const complexPath = 'items[0].tags[_key=="abc"].name'
+ * const lastSegmentComplex = slicePath(complexPath, -1)
+ * console.log(lastSegmentComplex) // "name"
  * ```
  *
  * @public
  */
-export function parsePath(path: string | CompatPath | ExprNode): ExprNode {
-  if (Array.isArray(path)) return getExprForPath(path)
-  if (typeof path === 'string') return parse(path)
-  return path
+export function slicePath(
+  path: string | Path | ExprNode | undefined,
+  start?: number,
+  end?: number,
+): string {
+  if (!path) return ''
+  if (typeof path === 'string') return slicePath(parsePath(path), start, end)
+  if (Array.isArray(path)) return slicePath(parsePath(path), start, end)
+  if (path.type !== 'Path') return ''
+
+  const depth = getPathDepth(path)
+  if (typeof start === 'undefined') start = 0
+  if (start < 0) start = start + depth
+  if (typeof end === 'undefined') end = depth
+  if (end < 0) end = end + depth
+
+  // Normalize bounds
+  start = Math.max(0, Math.min(start, depth))
+  end = Math.max(0, Math.min(end, depth))
+
+  // If slice is empty or invalid, return empty string
+  if (start >= end) return ''
+
+  // slicing the end is easy, just keep scoping in
+  if (end < depth) return slicePath(path.base, start, end)
+
+  let base
+  for (const segment of drop(getSegments(path), start)) {
+    base = {...segment, base}
+  }
+  return stringifyPath(base)
+}
+
+/**
+ * Joins two path segments into a single, normalized path string.
+ *
+ * This function is useful for programmatically constructing paths from a base
+ * and an additional segment. It handles various path formats, ensuring that
+ * the resulting path is correctly formatted.
+ *
+ * @param base - The base path (string, Path array, or AST node).
+ * @param path - The path segment to append (string, Path array, or AST node).
+ * @returns A new string representing the combined path.
+ *
+ * @example
+ * Basic joining:
+ * ```typescript
+ * import { joinPaths } from '@sanity/json-match'
+ *
+ * const basePath = 'user.profile'
+ * const newSegment = 'email'
+ * const fullPath = joinPaths(basePath, newSegment)
+ * console.log(fullPath) // "user.profile.email"
+ * ```
+ *
+ * @example
+ * Replacing the last segment of a path:
+ * ```typescript
+ * import { joinPaths, slicePath } from '@sanity/json-match'
+ *
+ * const originalPath = 'user.profile.email'
+ * const parentPath = slicePath(originalPath, 0, -1) // "user.profile"
+ * const newPath = joinPaths(parentPath, 'contactInfo')
+ * console.log(newPath) // "user.profile.contactInfo"
+ * ```
+ *
+ * @example
+ * Building paths with array-like segments:
+ * ```typescript
+ * import { joinPaths } from '@sanity/json-match'
+ *
+ * let base = 'items'
+ * base = joinPaths(base, '[0]') // "items[0]"
+ * base = joinPaths(base, '[_key=="abc"]') // "items[0][_key=="abc"]"
+ * base = joinPaths(base, 'title') // "items[0][_key=="abc"].title"
+ * console.log(base)
+ * ```
+ *
+ * @public
+ */
+export function joinPaths(
+  base: string | Path | ExprNode | undefined,
+  path: string | Path | ExprNode | undefined,
+): string {
+  if (!base) return stringifyPath(path)
+  if (Array.isArray(base)) return joinPaths(parsePath(base), path)
+  if (typeof base === 'string') return joinPaths(parsePath(base), path)
+  if (base.type !== 'Path') return stringifyPath(path)
+  if (!path) return stringifyPath(base)
+  if (Array.isArray(path)) return joinPaths(base, parsePath(path))
+  if (typeof path === 'string') return joinPaths(base, parsePath(path))
+  if (path.type !== 'Path') return stringifyPath(base)
+
+  for (const segment of getSegments(path)) {
+    base = {...segment, base}
+  }
+  return stringifyPath(base)
 }

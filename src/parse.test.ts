@@ -1239,3 +1239,61 @@ describe('Position Tracking in Errors', () => {
     expect(() => parse('user.')).toThrow(/position 5/)
   })
 })
+
+describe('Null Literal', () => {
+  test('parses standalone null literal', () => {
+    const ast = parse('null')
+    expect(ast).toEqual({type: 'Null'})
+  })
+
+  test('parses null in comparison constraint', () => {
+    const ast = parse('items[value == null]')
+    expect(ast).toEqual({
+      type: 'Path',
+      base: {type: 'Path', segment: {name: 'items', type: 'Identifier'}},
+      recursive: false,
+      segment: {
+        type: 'Subscript',
+        elements: [
+          {
+            type: 'Comparison',
+            left: {type: 'Path', segment: {name: 'value', type: 'Identifier'}},
+            operator: '==',
+            right: {type: 'Null'},
+          },
+        ],
+      },
+    })
+  })
+
+  test('parses null in union', () => {
+    const ast = parse('[null, true, false]')
+    expect(ast).toEqual({
+      type: 'Path',
+      segment: {
+        type: 'Subscript',
+        elements: [{type: 'Null'}, {type: 'Boolean', value: true}, {type: 'Boolean', value: false}],
+      },
+    })
+  })
+
+  test('parses null as a property value in comparison', () => {
+    const ast = parse('items[property == null]')
+    expect(ast).toEqual({
+      type: 'Path',
+      base: {type: 'Path', segment: {name: 'items', type: 'Identifier'}},
+      recursive: false,
+      segment: {
+        type: 'Subscript',
+        elements: [
+          {
+            type: 'Comparison',
+            left: {type: 'Path', segment: {name: 'property', type: 'Identifier'}},
+            operator: '==',
+            right: {type: 'Null'},
+          },
+        ],
+      },
+    })
+  })
+})

@@ -8,7 +8,7 @@ import {
 } from './parse'
 import {
   type Path,
-  type CompatPath,
+  type SingleValuePath,
   isKeyedObject,
   isRecord,
   createPathSet,
@@ -16,7 +16,7 @@ import {
   getIndexForKey,
 } from './path'
 
-const LITERAL_PATH: Path = []
+const LITERAL_PATH: SingleValuePath = []
 
 /**
  * Represents a single match result from evaluating a JSONMatch expression.
@@ -35,8 +35,17 @@ const LITERAL_PATH: Path = []
  * @public
  */
 export interface MatchEntry {
+  /**
+   * The subvalue of the found within the given JSON value. This is
+   * referentially equal to the nested value in the JSON object.
+   */
   value: unknown
-  path: Path
+  /**
+   * An array of keys and indices representing the location of the value within
+   * the original value. Note that the evaluator will only yield paths that
+   * address a single value.
+   */
+  path: SingleValuePath
 }
 
 /**
@@ -47,7 +56,7 @@ export interface MatchEntry {
  * returned are compatible with Sanity's path format and can be used for document operations.
  *
  * @param value - The JSON value to search within
- * @param expr - The JSONMatch expression (string, CompatPath array, or parsed AST)
+ * @param expr - The JSONMatch expression (string, Path array, or parsed AST)
  * @param basePath - Optional base path to prepend to all result paths
  * @returns Generator yielding MatchEntry objects for each match
  *
@@ -88,8 +97,8 @@ export interface MatchEntry {
  */
 export function* jsonMatch(
   value: unknown,
-  expr: string | CompatPath | ExprNode,
-  basePath: Path = [],
+  expr: string | Path | ExprNode,
+  basePath: SingleValuePath = [],
 ): Generator<MatchEntry> {
   const visited = createPathSet()
 
@@ -102,9 +111,9 @@ export function* jsonMatch(
   }
 }
 
-type EvaluatorOptions<T> = T & {value: unknown; path: Path}
+type EvaluatorOptions<T> = T & {value: unknown; path: SingleValuePath}
 
-const itemEntry = (item: unknown, path: Path, index: number): MatchEntry => ({
+const itemEntry = (item: unknown, path: SingleValuePath, index: number): MatchEntry => ({
   value: item,
   path: [...path, isKeyedObject(item) ? {_key: item._key} : index],
 })
@@ -113,7 +122,9 @@ function* evaluateExpression({
   expr,
   value,
   path,
-}: EvaluatorOptions<{expr: ExprNode}>): Generator<MatchEntry> {
+}: EvaluatorOptions<{expr?: ExprNode}>): Generator<MatchEntry> {
+  if (!expr) return
+
   // If a Number, String, or Boolean node is here, then it's a literal value semantically
   // so we yield it without a path
   switch (expr.type) {
@@ -121,6 +132,10 @@ function* evaluateExpression({
     case 'Number':
     case 'Boolean': {
       yield {value: expr.value, path: LITERAL_PATH}
+      return
+    }
+    case 'Null': {
+      yield {value: null, path: LITERAL_PATH}
       return
     }
     case 'Path': {
@@ -190,6 +205,14 @@ function* evaluateSegment({
     }
 
     case 'Identifier': {
+      if (Array.isArray(value)) {
+        for (let index = 0; index < value.length; index++) {
+          const item = value[index]
+          yield* evaluateSegment({segment, ...itemEntry(item, path, index)})
+        }
+        return
+      }
+
       if (!isRecord(value)) return
       if (!(segment.name in value)) return
       yield {value: value[segment.name], path: [...path, segment.name]}

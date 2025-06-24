@@ -2,44 +2,8 @@ import {type ExprNode, type PathNode, type SegmentNode, type SubscriptElementNod
 
 /**
  * Converts a JSONMatch AST node back to its string representation.
- *
- * This function takes a parsed JSONMatch expression (AST) and converts it back to
- * a string format. This is useful for debugging, logging, or when you need to
- * serialize path expressions for storage or transmission.
- *
- * @param node - The JSONMatch AST node to stringify
- * @returns The string representation of the JSONMatch expression
- *
- * @example
- * Basic path stringification:
- * ```typescript
- * import { parse, stringifyPath } from 'jsonmatch'
- *
- * const ast = parse('users[age > 21].name')
- * const str = stringifyPath(ast)
- * console.log(str) // "users[age>21].name"
- * ```
- *
- * @example
- * Round-trip parsing and stringification:
- * ```typescript
- * const original = 'items[*].tags[0]'
- * const ast = parse(original)
- * const stringified = stringifyPath(ast)
- * console.log(stringified === original) // true
- * ```
- *
- * @example
- * Normalizing path expressions:
- * ```typescript
- * const messy = '  users  [  age  >  21  ] . name  '
- * const normalized = stringifyPath(parse(messy))
- * console.log(normalized) // "users[age>21].name"
- * ```
- *
- * @public
  */
-function stringifyExpression(node: ExprNode): string {
+export function stringifyExpression(node: ExprNode): string {
   switch (node.type) {
     case 'String':
     case 'Number':
@@ -47,6 +11,8 @@ function stringifyExpression(node: ExprNode): string {
       return JSON.stringify(node.value)
     case 'Path':
       return stringifyPath(node)
+    case 'Null':
+      return 'null'
     default:
       throw new Error(
         `Unknown node type: ${
@@ -63,10 +29,10 @@ function stringifyPath(node: PathNode | undefined): string {
   const base = stringifyPath(node.base)
   const segment = stringifySegment(node.segment)
 
-  if (!base) return segment
-
   // if the node is recursive, a `..` is always required
   if (node.recursive) return `${base}..${segment}`
+  if (!base) return segment
+
   // if the next segment starts with a `[` then we can omit the `.`
   if (segment.startsWith('[')) return `${base}${segment}`
   // otherwise, we need the `.`
@@ -108,11 +74,15 @@ function stringifySubscriptElement(node: SubscriptElementNode): string {
     case 'String':
     case 'Number':
     case 'Boolean':
+    case 'Null':
     case 'Path':
       return stringifyExpression(node)
     default:
-      throw new Error(`Unknown subscript element type: ${(node as any).type}`)
+      throw new Error(
+        `Unknown subscript element type: ${
+          // @ts-expect-error this should be a `never` type
+          node.type
+        }`,
+      )
   }
 }
-
-export {stringifyExpression as stringifyPath}

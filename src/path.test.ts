@@ -1,15 +1,14 @@
 import {describe, test, expect} from 'vitest'
 import {
   getIndexForKey,
-  getParentPath,
-  addPathSegment,
   parsePath,
   createPathSet,
-  type CompatPath,
+  getPathDepth,
+  slicePath,
+  joinPaths,
   type Path,
 } from './path'
-import {parse, PathNode} from './parse'
-import {stringifyPath} from './stringify'
+import {parse} from './parse'
 
 describe('path utilities', () => {
   describe('getIndexForKey', () => {
@@ -85,135 +84,6 @@ describe('path utilities', () => {
     })
   })
 
-  describe('getParentPath', () => {
-    test('returns parent path for string paths', () => {
-      expect(getParentPath('user.profile.email')).toBe('user.profile')
-      expect(getParentPath('items[0].name')).toBe('items[0]')
-      expect(getParentPath('data[*].tags')).toBe('data[*]')
-    })
-
-    test('returns parent path for complex paths', () => {
-      expect(getParentPath('users[age > 21].profile.email')).toBe('users[age>21].profile')
-      expect(getParentPath('data..items.metadata')).toBe('data..items')
-      expect(getParentPath('.user.profile')).toBe('@.user')
-    })
-
-    test('returns undefined for root-level paths', () => {
-      expect(getParentPath('user')).toBeUndefined()
-      expect(getParentPath('*')).toBeUndefined()
-      expect(getParentPath('@')).toBeUndefined()
-      expect(getParentPath('[0]')).toBeUndefined()
-    })
-
-    test('works with studio-style path arrays', () => {
-      const path: CompatPath = ['user', 'profile', 'email']
-      expect(getParentPath(path)).toBe('user.profile')
-
-      const pathWithIndex: CompatPath = ['items', 0, 'name']
-      expect(getParentPath(pathWithIndex)).toBe('items[0]')
-
-      const pathWithSlice: CompatPath = ['items', [1, 3], 'name']
-      expect(getParentPath(pathWithSlice)).toBe('items[1:3]')
-    })
-
-    test('works with ExprNode directly', () => {
-      const ast = parse('user.profile.email')
-      expect(getParentPath(ast)).toBe('user.profile')
-
-      const simpleAst = parse('user')
-      expect(getParentPath(simpleAst)).toBeUndefined()
-    })
-
-    test('handles implicit root access', () => {
-      expect(getParentPath('.user.profile')).toBe('@.user')
-      expect(getParentPath('..items.name')).toBe('@..items')
-    })
-
-    test('returns undefined for non-path expressions', () => {
-      expect(getParentPath('42')).toBeUndefined()
-      expect(getParentPath('"string"')).toBeUndefined()
-    })
-
-    test('handles empty CompatPath', () => {
-      expect(() => getParentPath([])).toThrow('Path cannot be empty')
-    })
-  })
-
-  describe('addPathSegment', () => {
-    test('adds string segments to string paths', () => {
-      expect(addPathSegment('user', 'profile')).toBe('user.profile')
-      expect(addPathSegment('user.profile', 'email')).toBe('user.profile.email')
-    })
-
-    test('adds number segments to string paths', () => {
-      expect(addPathSegment('items', 0)).toBe('items[0]')
-      expect(addPathSegment('items[0]', 1)).toBe('items[0][1]')
-      expect(addPathSegment('user.items', 2)).toBe('user.items[2]')
-    })
-
-    test('adds keyed object segments to string paths', () => {
-      expect(addPathSegment('users', {_key: 'alice'})).toBe('users[_key=="alice"]')
-      expect(addPathSegment('data.items', {_key: 'special-key'})).toBe(
-        'data.items[_key=="special-key"]',
-      )
-    })
-
-    test('adds slice segments to string paths', () => {
-      expect(addPathSegment('items', [1, 3])).toBe('items[1:3]')
-      expect(addPathSegment('items', [1, ''])).toBe('items[1:]')
-      expect(addPathSegment('items', ['', 3])).toBe('items[:3]')
-      expect(addPathSegment('items', ['', ''])).toBe('items[*]')
-    })
-
-    test('adds PathNode segments', () => {
-      const segment = parse('profile.email') as PathNode
-      expect(addPathSegment('user', segment)).toBe('user.profile.email')
-
-      const subscriptSegment = parse('[0]') as any // Type assertion needed
-      expect(addPathSegment('items', subscriptSegment)).toBe('items[0]')
-    })
-
-    test('works with CompatPath arrays', () => {
-      const path: CompatPath = ['user', 'profile']
-      expect(addPathSegment(path, 'email')).toBe('user.profile.email')
-      expect(addPathSegment(path, 0)).toBe('user.profile[0]')
-      expect(addPathSegment(path, {_key: 'test'})).toBe('user.profile[_key=="test"]')
-    })
-
-    test('works with ExprNode input', () => {
-      const ast = parse('user.profile')
-      expect(addPathSegment(ast, 'email')).toBe('user.profile.email')
-      expect(addPathSegment(ast, 0)).toBe('user.profile[0]')
-    })
-
-    test('handles special identifier names that need quoting', () => {
-      expect(addPathSegment('user', 'field-name')).toBe("user.'field-name'")
-      expect(addPathSegment('user', 'field with spaces')).toBe("user.'field with spaces'")
-    })
-
-    test('throws error for literal expressions', () => {
-      expect(() => addPathSegment('42', 'field')).toThrow('Cannot add path segment to literal 42')
-      expect(() => addPathSegment('"string"', 'field')).toThrow(
-        'Cannot add path segment to literal "string"',
-      )
-    })
-
-    test('handles complex chaining', () => {
-      let path = 'data'
-      path = addPathSegment(path, 'users')
-      path = addPathSegment(path, 0)
-      path = addPathSegment(path, 'profile')
-      path = addPathSegment(path, {_key: 'email'})
-
-      expect(path).toBe('data.users[0].profile[_key=="email"]')
-    })
-
-    test('preserves implicit root access', () => {
-      expect(addPathSegment('.user', 'profile')).toBe('@.user.profile')
-      expect(addPathSegment('..items', 'name')).toBe('@..items.name')
-    })
-  })
-
   describe('parsePath', () => {
     test('parses string paths', () => {
       const result = parsePath('user.profile.email')
@@ -230,9 +100,9 @@ describe('path utilities', () => {
       })
     })
 
-    test('converts CompatPath arrays to ExprNode', () => {
-      const compatPath: CompatPath = ['user', 'profile', 'email']
-      const result = parsePath(compatPath)
+    test('converts Path arrays to ExprNode', () => {
+      const path: Path = ['user', 'profile', 'email']
+      const result = parsePath(path)
       expect(result).toEqual({
         type: 'Path',
         base: {
@@ -256,10 +126,10 @@ describe('path utilities', () => {
       expect(result).toBe(ast) // Should be the same object
     })
 
-    test('handles CompatPath with different segment types', () => {
-      const compatPath: CompatPath = ['users', 0, {_key: 'profile'}, [1, 3], 'email']
+    test('handles Path with different segment types', () => {
+      const path: Path = ['users', 0, {_key: 'profile'}, [1, 3], 'email']
 
-      const result = parsePath(compatPath)
+      const result = parsePath(path)
       expect(result).toEqual({
         type: 'Path',
         base: {
@@ -301,9 +171,9 @@ describe('path utilities', () => {
     })
 
     test('treats IndexTuple with missing start and end as wildcard', () => {
-      const compatPath: CompatPath = ['users', ['', '']]
+      const path: Path = ['users', ['', '']]
 
-      const result = parsePath(compatPath)
+      const result = parsePath(path)
       expect(result).toEqual({
         type: 'Path',
         base: {
@@ -319,18 +189,14 @@ describe('path utilities', () => {
       })
     })
 
-    test('handles single segment CompatPath', () => {
-      const compatPath: CompatPath = ['user']
-      const result = parsePath(compatPath)
+    test('handles single segment Path', () => {
+      const path: Path = ['user']
+      const result = parsePath(path)
       expect(result).toEqual({
         type: 'Path',
         recursive: false,
         segment: {name: 'user', type: 'Identifier'},
       })
-    })
-
-    test('throws error for empty CompatPath', () => {
-      expect(() => parsePath([])).toThrow('Path cannot be empty')
     })
 
     test('handles literal expressions', () => {
@@ -488,156 +354,370 @@ describe('path utilities', () => {
     })
   })
 
-  describe('integration tests', () => {
-    test('complex path manipulation workflow', () => {
-      // Start with a base path
-      let path = 'data.users'
-
-      // Add array index
-      path = addPathSegment(path, 0)
-      expect(path).toBe('data.users[0]')
-
-      // Add keyed object lookup
-      path = addPathSegment(path, {_key: 'profile'})
-      expect(path).toBe('data.users[0][_key=="profile"]')
-
-      // Add property access
-      path = addPathSegment(path, 'email')
-      expect(path).toBe('data.users[0][_key=="profile"].email')
-
-      // Get parent path
-      const parent = getParentPath(path)
-      expect(parent).toBe('data.users[0][_key=="profile"]')
-
-      // Parse the final path
-      const parsed = parsePath(path)
-      expect(parsed).toEqual({
-        type: 'Path',
-        base: {
-          type: 'Path',
-          base: {
-            type: 'Path',
-            base: {
-              type: 'Path',
-              base: {
-                type: 'Path',
-                segment: {name: 'data', type: 'Identifier'},
-              },
-              recursive: false,
-              segment: {name: 'users', type: 'Identifier'},
-            },
-            recursive: false,
-            segment: {
-              type: 'Subscript',
-              elements: [{type: 'Number', value: 0}],
-            },
-          },
-          recursive: false,
-          segment: {
-            type: 'Subscript',
-            elements: [
-              {
-                type: 'Comparison',
-                left: {type: 'Path', segment: {name: '_key', type: 'Identifier'}},
-                operator: '==',
-                right: {type: 'String', value: 'profile'},
-              },
-            ],
-          },
-        },
-        recursive: false,
-        segment: {name: 'email', type: 'Identifier'},
-      })
+  describe('getPathDepth', () => {
+    test('returns correct depth for simple string paths', () => {
+      expect(getPathDepth('user')).toBe(1)
+      expect(getPathDepth('user.profile')).toBe(2)
+      expect(getPathDepth('user.profile.email')).toBe(3)
+      expect(getPathDepth('user.profile.email.domain')).toBe(4)
     })
 
-    test('CompatPath to string conversion and back', () => {
-      const originalCompatPath: CompatPath = [
-        'data',
-        'items',
-        [1, 5],
-        {_key: 'metadata'},
-        'tags',
-        0,
-      ]
-
-      // Convert to ExprNode
-      const expr = parsePath(originalCompatPath)
-      expect(stringifyPath(expr)).toBe('data.items[1:5][_key=="metadata"].tags[0]')
-
-      // Add another segment
-      const extended = addPathSegment(expr, 'name')
-      expect(extended).toBe('data.items[1:5][_key=="metadata"].tags[0].name')
-
-      // Parse it back
-      const reparsed = parsePath(extended)
-      expect(reparsed).toEqual({
-        type: 'Path',
-        base: {
-          type: 'Path',
-          base: {
-            type: 'Path',
-            base: {
-              type: 'Path',
-              base: {
-                type: 'Path',
-                base: {
-                  base: {segment: {name: 'data', type: 'Identifier'}, type: 'Path'},
-                  recursive: false,
-                  segment: {name: 'items', type: 'Identifier'},
-                  type: 'Path',
-                },
-                recursive: false,
-                segment: {
-                  type: 'Subscript',
-                  elements: [{type: 'Slice', start: 1, end: 5}],
-                },
-              },
-              recursive: false,
-              segment: {
-                type: 'Subscript',
-                elements: [
-                  {
-                    left: {segment: {name: '_key', type: 'Identifier'}, type: 'Path'},
-                    operator: '==',
-                    right: {type: 'String', value: 'metadata'},
-                    type: 'Comparison',
-                  },
-                ],
-              },
-            },
-            recursive: false,
-            segment: {name: 'tags', type: 'Identifier'},
-          },
-          recursive: false,
-          segment: {elements: [{type: 'Number', value: 0}], type: 'Subscript'},
-        },
-        recursive: false,
-        segment: {name: 'name', type: 'Identifier'},
-      })
+    test('returns correct depth for paths with array indices', () => {
+      expect(getPathDepth('items[0]')).toBe(2)
+      expect(getPathDepth('items[0].name')).toBe(3)
+      expect(getPathDepth('users[0].profile.email')).toBe(4)
+      expect(getPathDepth('matrix[0][1]')).toBe(3)
     })
 
-    test('keyed array lookups with getIndexForKey', () => {
-      const users = [
-        {_key: 'user1', name: 'Alice', age: 25},
-        {_key: 'user2', name: 'Bob', age: 30},
-        {_key: 'user3', name: 'Carol', age: 35},
-      ]
+    test('returns correct depth for paths with keyed objects', () => {
+      expect(getPathDepth('users[_key=="alice"]')).toBe(2)
+      expect(getPathDepth('users[_key=="alice"].profile')).toBe(3)
+      expect(getPathDepth('data.items[_key=="special"].tags[0]')).toBe(5)
+    })
 
-      // Get index for a specific key
-      const index = getIndexForKey(users, 'user2')
-      expect(index).toBe(1)
+    test('returns correct depth for paths with wildcards and slices', () => {
+      expect(getPathDepth('items[*]')).toBe(2)
+      expect(getPathDepth('items[*].name')).toBe(3)
+      expect(getPathDepth('items[1:3]')).toBe(2)
+      expect(getPathDepth('items[1:3].tags[*]')).toBe(4)
+    })
 
-      // Use that index to build a path
-      const path = addPathSegment('users', index!)
-      expect(path).toBe('users[1]')
+    test('returns correct depth for paths with complex expressions', () => {
+      expect(getPathDepth('users[age > 21]')).toBe(2)
+      expect(getPathDepth('users[age > 21].profile.email')).toBe(4)
+      expect(getPathDepth('data[*].items[price < 100].name')).toBe(5)
+    })
 
-      // Add property access
-      const fullPath = addPathSegment(path, 'name')
-      expect(fullPath).toBe('users[1].name')
+    test('returns correct depth for paths with recursive descent', () => {
+      expect(getPathDepth('data..name')).toBe(2)
+      expect(getPathDepth('root.data..items.name')).toBe(4)
+      expect(getPathDepth('root..data..items..name')).toBe(4)
+    })
 
-      // Get parent to go back to the user object
-      const userPath = getParentPath(fullPath)
-      expect(userPath).toBe('users[1]')
+    test('returns correct depth for paths with this context', () => {
+      expect(getPathDepth('@')).toBe(0)
+      expect(getPathDepth('$.config')).toBe(1)
+      expect(getPathDepth('@.user.profile')).toBe(2)
+      expect(getPathDepth('.bicycle.color')).toBe(2)
+    })
+
+    test('returns correct depth for Path arrays', () => {
+      expect(getPathDepth(['user'])).toBe(1)
+      expect(getPathDepth(['user', 'profile'])).toBe(2)
+      expect(getPathDepth(['user', 'profile', 'email'])).toBe(3)
+      expect(getPathDepth(['items', 0, 'name'])).toBe(3)
+      expect(getPathDepth(['users', {_key: 'alice'}, 'profile'])).toBe(3)
+      expect(getPathDepth(['items', [1, 3], 'name'])).toBe(3)
+    })
+
+    test('returns correct depth for ExprNode AST objects', () => {
+      const ast1 = parse('user.profile.email')
+      expect(getPathDepth(ast1)).toBe(3)
+
+      const ast2 = parse('items[0].tags[*]')
+      expect(getPathDepth(ast2)).toBe(4)
+
+      const ast3 = parse('users[age > 21].profile')
+      expect(getPathDepth(ast3)).toBe(3)
+    })
+
+    test('returns 0 for non-path expressions', () => {
+      expect(getPathDepth('42')).toBe(0)
+      expect(getPathDepth('"string"')).toBe(0)
+      expect(getPathDepth('true')).toBe(0)
+    })
+
+    test('handles empty Path array', () => {
+      expect(getPathDepth([])).toBe(0)
+    })
+
+    test('handles edge cases', () => {
+      // Single character paths
+      expect(getPathDepth('a')).toBe(1)
+      expect(getPathDepth('a.b')).toBe(2)
+
+      // Quoted identifiers
+      expect(getPathDepth("'field-name'")).toBe(1)
+      expect(getPathDepth("user.'field-name'.value")).toBe(3)
+
+      // Numbers as identifiers
+      expect(getPathDepth('[0]')).toBe(1)
+      expect(getPathDepth('[0].name')).toBe(2)
+    })
+  })
+
+  describe('slicePath', () => {
+    test('returns empty string for empty or undefined paths', () => {
+      expect(slicePath(undefined)).toBe('')
+      expect(slicePath('')).toBe('')
+      expect(slicePath([])).toBe('')
+    })
+
+    test('slices string paths from start', () => {
+      expect(slicePath('user.profile.email.domain', 1)).toBe('profile.email.domain')
+      expect(slicePath('user.profile.email.domain', 2)).toBe('email.domain')
+      expect(slicePath('user.profile.email.domain', 3)).toBe('domain')
+    })
+
+    test('slices string paths with start and end', () => {
+      expect(slicePath('user.profile.email.domain', 1, 3)).toBe('profile.email')
+      expect(slicePath('user.profile.email.domain', 0, 2)).toBe('user.profile')
+      expect(slicePath('user.profile.email.domain', 2, 4)).toBe('email.domain')
+    })
+
+    test('slices paths with array indices', () => {
+      expect(slicePath('items[0].name.first', 1)).toBe('[0].name.first')
+      expect(slicePath('items[0].name.first', 0, 2)).toBe('items[0]')
+      expect(slicePath('users[0].profile[1].tags', 2, 4)).toBe('profile[1]')
+    })
+
+    test('slices paths with keyed objects', () => {
+      expect(slicePath('users[_key=="alice"].profile.email', 1)).toBe(
+        '[_key=="alice"].profile.email',
+      )
+      expect(slicePath('users[_key=="alice"].profile.email', 0, 2)).toBe('users[_key=="alice"]')
+      expect(slicePath('data.items[_key=="special"].tags[0]', 2, 4)).toBe('[_key=="special"].tags')
+    })
+
+    test('slices Path arrays', () => {
+      const path: Path = ['user', 'profile', 'email', 'domain']
+      expect(slicePath(path, 1)).toBe('profile.email.domain')
+      expect(slicePath(path, 1, 3)).toBe('profile.email')
+      expect(slicePath(path, 0, 2)).toBe('user.profile')
+    })
+
+    test('slices Path with mixed segment types', () => {
+      const path: Path = ['users', 0, {_key: 'profile'}, 'email']
+      expect(slicePath(path, 1)).toBe('[0][_key=="profile"].email')
+      expect(slicePath(path, 0, 2)).toBe('users[0]')
+      expect(slicePath(path, 2, 4)).toBe('[_key=="profile"].email')
+    })
+
+    test('slices Path with index tuples', () => {
+      const path: Path = ['items', [1, 3], 'name', 'first']
+      expect(slicePath(path, 1)).toBe('[1:3].name.first')
+      expect(slicePath(path, 0, 2)).toBe('items[1:3]')
+      expect(slicePath(path, 2)).toBe('name.first')
+    })
+
+    test('slices ExprNode AST objects', () => {
+      const ast = parse('user.profile.email.domain')
+      expect(slicePath(ast, 1)).toBe('profile.email.domain')
+      expect(slicePath(ast, 1, 3)).toBe('profile.email')
+      expect(slicePath(ast, 0, 2)).toBe('user.profile')
+    })
+
+    test('handles negative indices', () => {
+      expect(slicePath('user.profile.email.domain', -2)).toBe('email.domain')
+      expect(slicePath('user.profile.email.domain', -3, -1)).toBe('profile.email')
+      expect(slicePath('user.profile.email.domain', 1, -1)).toBe('profile.email')
+    })
+
+    test('handles out of bounds indices', () => {
+      expect(slicePath('user.profile', 5)).toBe('')
+      expect(slicePath('user.profile', 0, 10)).toBe('user.profile')
+      expect(slicePath('user.profile', -10)).toBe('user.profile')
+      expect(slicePath('user.profile', -10, 1)).toBe('user')
+    })
+
+    test('handles edge cases with start >= end', () => {
+      expect(slicePath('user.profile.email', 2, 2)).toBe('')
+      expect(slicePath('user.profile.email', 3, 2)).toBe('')
+      expect(slicePath('user.profile.email', 5, 3)).toBe('')
+    })
+
+    test('slices single segment paths', () => {
+      expect(slicePath('user', 0)).toBe('user')
+      expect(slicePath('user', 1)).toBe('')
+      expect(slicePath('user', 0, 1)).toBe('user')
+      expect(slicePath(['user'], 0, 1)).toBe('user')
+    })
+
+    test('handles paths with wildcards and complex expressions', () => {
+      expect(slicePath('items[*].name.first', 1)).toBe('[*].name.first')
+      expect(slicePath('users[age > 21].profile.email', 0, 2)).toBe('users[age>21]')
+      expect(slicePath('data[*][price < 100].name', 2)).toBe('[price<100].name')
+    })
+
+    test('handles paths with recursive descent', () => {
+      expect(slicePath('data..items.name', 1)).toBe('..items.name')
+      expect(slicePath('root.data..items.name', 2)).toBe('..items.name')
+      expect(slicePath('root.data..items.name', 0, 3)).toBe('root.data..items')
+    })
+
+    test('returns original path when no slicing parameters provided', () => {
+      expect(slicePath('user.profile.email')).toBe('user.profile.email')
+      expect(slicePath(['user', 'profile', 'email'])).toBe('user.profile.email')
+      const ast = parse('user.profile.email')
+      expect(slicePath(ast)).toBe('user.profile.email')
+    })
+
+    test('does not handles non-path expressions', () => {
+      expect(slicePath('42')).toBe('')
+      expect(slicePath('"string"')).toBe('')
+      expect(slicePath('true')).toBe('')
+    })
+  })
+
+  describe('joinPaths', () => {
+    test('joins simple string paths', () => {
+      expect(joinPaths('user', 'profile')).toBe('user.profile')
+      expect(joinPaths('user.profile', 'email')).toBe('user.profile.email')
+      expect(joinPaths('data', 'users[0].name')).toBe('data.users[0].name')
+    })
+
+    test('joins string paths with array indices', () => {
+      expect(joinPaths('users[0]', 'profile')).toBe('users[0].profile')
+      expect(joinPaths('items[0]', 'tags[1]')).toBe('items[0].tags[1]')
+      expect(joinPaths('matrix[0][1]', 'value')).toBe('matrix[0][1].value')
+    })
+
+    test('joins string paths with keyed objects', () => {
+      expect(joinPaths('users[_key=="alice"]', 'profile')).toBe('users[_key=="alice"].profile')
+      expect(joinPaths('data', 'items[_key=="special"].tags')).toBe(
+        'data.items[_key=="special"].tags',
+      )
+    })
+
+    test('joins string paths with wildcards and slices', () => {
+      expect(joinPaths('items[*]', 'name')).toBe('items[*].name')
+      expect(joinPaths('items[1:3]', 'tags')).toBe('items[1:3].tags')
+      expect(joinPaths('data[*]', 'items[price<100].name')).toBe('data[*].items[price<100].name')
+    })
+
+    test('joins Path arrays', () => {
+      const basePath: Path = ['user', 'profile']
+      const path: Path = ['email', 'domain']
+      expect(joinPaths(basePath, path)).toBe('user.profile.email.domain')
+    })
+
+    test('joins Path with mixed segment types', () => {
+      const basePath: Path = ['users', 0, {_key: 'profile'}]
+      const path: Path = ['email', 'domain']
+      expect(joinPaths(basePath, path)).toBe('users[0][_key=="profile"].email.domain')
+    })
+
+    test('joins Path with index tuples', () => {
+      const basePath: Path = ['items', [1, 3]]
+      const path: Path = ['name', 'first']
+      expect(joinPaths(basePath, path)).toBe('items[1:3].name.first')
+    })
+
+    test('joins ExprNode AST objects', () => {
+      const baseAst = parse('user.profile')
+      const pathAst = parse('email.domain')
+      expect(joinPaths(baseAst, pathAst)).toBe('user.profile.email.domain')
+    })
+
+    test('joins mixed input types', () => {
+      // String + Path
+      expect(joinPaths('user', ['profile', 'email'])).toBe('user.profile.email')
+
+      // Path + String
+      expect(joinPaths(['user', 'profile'], 'email')).toBe('user.profile.email')
+
+      // String + ExprNode
+      const pathAst = parse('email.domain')
+      expect(joinPaths('user.profile', pathAst)).toBe('user.profile.email.domain')
+
+      // ExprNode + String
+      const baseAst = parse('user.profile')
+      expect(joinPaths(baseAst, 'email.domain')).toBe('user.profile.email.domain')
+
+      // Path + ExprNode
+      const pathArr: Path = ['user', 'profile']
+      expect(joinPaths(pathArr, pathAst)).toBe('user.profile.email.domain')
+
+      // ExprNode + Path
+      expect(joinPaths(baseAst, pathArr)).toBe('user.profile.user.profile')
+    })
+
+    test('handles undefined or empty inputs', () => {
+      // Undefined base
+      expect(joinPaths(undefined, 'user.profile')).toBe('user.profile')
+      expect(joinPaths(undefined, ['user', 'profile'])).toBe('user.profile')
+
+      // Undefined path
+      expect(joinPaths('user.profile', undefined)).toBe('user.profile')
+      expect(joinPaths(['user', 'profile'], undefined)).toBe('user.profile')
+
+      // Both undefined
+      expect(joinPaths(undefined, undefined)).toBe('')
+
+      // Empty string base
+      expect(joinPaths('', 'user.profile')).toBe('user.profile')
+
+      // Empty string path
+      expect(joinPaths('user.profile', '')).toBe('user.profile')
+
+      // Empty arrays
+      expect(joinPaths([], 'user.profile')).toBe('user.profile')
+      expect(joinPaths('user.profile', [])).toBe('user.profile')
+    })
+
+    test('handles single segment paths', () => {
+      expect(joinPaths('user', 'profile')).toBe('user.profile')
+      expect(joinPaths(['user'], 'profile')).toBe('user.profile')
+      expect(joinPaths('user', ['profile'])).toBe('user.profile')
+      expect(joinPaths(['user'], ['profile'])).toBe('user.profile')
+    })
+
+    test('handles complex nested paths', () => {
+      const complexBase = 'data.users[age>21].profile.settings'
+      const complexPath = 'theme.dark[enabled==true].colors'
+      expect(joinPaths(complexBase, complexPath)).toBe(
+        'data.users[age>21].profile.settings.theme.dark[enabled==true].colors',
+      )
+    })
+
+    test('handles paths with recursive descent', () => {
+      expect(joinPaths('data..items', 'name')).toBe('data..items.name')
+      expect(joinPaths('root', 'data..items..name')).toBe('root.data..items..name')
+    })
+
+    test('handles paths with this context', () => {
+      expect(joinPaths('@', 'user.profile')).toBe('@.user.profile')
+      expect(joinPaths('$.config', 'theme')).toBe('@.config.theme')
+    })
+
+    test('handles non-path expressions gracefully', () => {
+      // Non-path expressions should be treated as empty
+      expect(joinPaths('42', 'user.profile')).toBe('user.profile')
+      expect(joinPaths('user.profile', '42')).toBe('user.profile')
+      expect(joinPaths('"string"', 'user.profile')).toBe('user.profile')
+      expect(joinPaths('user.profile', '"string"')).toBe('user.profile')
+      expect(joinPaths('true', 'user.profile')).toBe('user.profile')
+      expect(joinPaths('user.profile', 'true')).toBe('user.profile')
+    })
+
+    test('handles edge cases with special characters', () => {
+      // Quoted identifiers
+      expect(joinPaths("user.'field-name'", 'value')).toBe("user.'field-name'.value")
+
+      // Numbers as identifiers
+      expect(joinPaths('[0]', 'name')).toBe('[0].name')
+      expect(joinPaths('user', '[0]')).toBe('user[0]')
+    })
+
+    test('preserves path structure and formatting', () => {
+      // Should maintain proper spacing and formatting
+      const messyBase = '  user  .  profile  '
+      const messyPath = '  email  .  domain  '
+      expect(joinPaths(messyBase, messyPath)).toBe('user.profile.email.domain')
+    })
+
+    test('handles deeply nested paths', () => {
+      const deepBase = 'a.b.c.d.e.f.g.h.i.j'
+      const deepPath = 'k.l.m.n.o.p.q.r.s.t'
+      expect(joinPaths(deepBase, deepPath)).toBe('a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t')
+    })
+
+    test('handles paths with all segment types', () => {
+      const complexBase: Path = ['data', 'users', 0, {_key: 'profile'}, [1, 3], 'settings']
+      const complexPath: Path = ['theme', 'dark', {_key: 'colors'}, 'primary']
+      expect(joinPaths(complexBase, complexPath)).toBe(
+        'data.users[0][_key=="profile"][1:3].settings.theme.dark[_key=="colors"].primary',
+      )
     })
   })
 })

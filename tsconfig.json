@@ -4,6 +4,8 @@
     "target": "esnext",
     "strict": true,
     "module": "preserve",
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "skipLibCheck": true
   }
 }

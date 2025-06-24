@@ -13,14 +13,18 @@ export {
   type SubscriptNode,
   type ThisNode,
   type WildcardNode,
+  type BooleanNode,
+  type NullNode,
 } from './parse'
-export {stringifyPath} from './stringify'
+
 export {
   getIndexForKey,
-  getParentPath,
-  addPathSegment,
   parsePath,
-  type CompatPath,
+  slicePath,
+  stringifyPath,
+  getPathDepth,
+  joinPaths,
+  type SingleValuePath,
   type Path,
   type PathSegment,
 } from './path'

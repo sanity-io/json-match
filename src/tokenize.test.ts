@@ -1,5 +1,5 @@
 import {describe, test, expect} from 'vitest'
-import {tokenize, type Token} from './tokenize'
+import {tokenize} from './tokenize'
 
 describe('Boolean Tokens', () => {
   test('parses true literal', () => {
@@ -623,5 +623,43 @@ describe('Real JSONMatch Examples from Spec', () => {
   test('tokenizes Unicode example', () => {
     const result = tokenize('"escaped \\u00E5 UTF-8"')
     expect(result).toMatchObject([{type: 'String', value: 'escaped å UTF-8'}, {type: 'EOF'}])
+  })
+})
+
+describe('Null Tokens', () => {
+  test('parses null literal', () => {
+    expect(tokenize('null')).toMatchObject([{type: 'Null'}, {type: 'EOF'}])
+  })
+
+  test('parses null in expression context', () => {
+    expect(tokenize('items[value == null]')).toMatchObject([
+      {type: 'Identifier', value: 'items'},
+      {type: '['},
+      {type: 'Identifier', value: 'value'},
+      {type: 'Operator', value: '=='},
+      {type: 'Null'},
+      {type: ']'},
+      {type: 'EOF'},
+    ])
+  })
+
+  test('parses both null and other values in sequence', () => {
+    expect(tokenize('[null, true, false]')).toMatchObject([
+      {type: '['},
+      {type: 'Null'},
+      {type: ','},
+      {type: 'Boolean', value: true},
+      {type: ','},
+      {type: 'Boolean', value: false},
+      {type: ']'},
+      {type: 'EOF'},
+    ])
+  })
+
+  test('distinguishes null from similar identifier', () => {
+    expect(tokenize('nullish')).toMatchObject([
+      {type: 'Identifier', value: 'nullish'},
+      {type: 'EOF'},
+    ])
   })
 })

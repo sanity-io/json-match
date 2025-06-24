@@ -7,6 +7,7 @@ export type Token =
   | {type: 'Number'; value: number; position: number}
   | {type: 'String'; value: string; position: number}
   | {type: 'Boolean'; value: boolean; position: number}
+  | {type: 'Null'; position: number}
   | {type: 'Identifier'; value: string; position: number}
   | {type: 'Operator'; value: Operator; position: number}
   | {type: '.'; position: number}
@@ -194,6 +195,10 @@ function parseIdentifierOrBoolean(cursor: CharacterCursor): Token {
   // Subsequent characters: [a-zA-Z0-9_$]
   while (/[a-zA-Z0-9_$]/.test(cursor())) {
     value += cursor.consume()
+  }
+
+  if (value === 'null') {
+    return {type: 'Null', position}
   }
 
   // Check if this is a boolean literal

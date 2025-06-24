@@ -1,14 +1,27 @@
-# `@sanity/json-match`
+# @sanity/json-match
 
-A powerful, lightweight implementation of the JSONMatch path expression language used by Sanity.io for document querying and manipulation.
+[![npm version](https://img.shields.io/npm/v/@sanity/json-match.svg)](https://www.npmjs.com/package/@sanity/json-match) [![bundle size](https://deno.bundlejs.com/?q=@sanity/json-match&badge)](https://bundlejs.com/?q=@sanity/json-match) [![github status checks](https://badgen.net/github/checks/sanity-io/json-match)](https://github.com/sanity-io/json-match/actions) [![npm weekly downloads](https://img.shields.io/npm/dw/@sanity/json-match.svg)](https://www.npmjs.com/package/@sanity/json-match) [![semantic-release: angular](https://img.shields.io/badge/semantic--release-angular-e10079?logo=semantic-release)](https://github.com/semantic-release/semantic-release)
 
-## Features
+> A modern, lightweight implementation of the [JSONMatch](https://www.sanity.io/docs/content-lake/json-match) path expression language made for low-level use in other libraries such as the Sanity App SDK.
 
-- 🚀 **Lightweight** - Small bundle size with efficient lazy evaluation
-- ⚡ **Performance** - Generator-based evaluation with constant-time cached lookups for keyed arrays
-- 🔧 **Interoperable** - Works seamlessly with Sanity's existing path formats
-- 🎯 **JSONPath-like** - Familiar syntax for those coming from JSONPath
-- 📦 **Universal** - Works in Node.js and browsers with full type safety
+## Table of Contents
+
+- [Installation](#installation)
+- [Core Concepts](#core-concepts)
+  - [What is JSONMatch?](#what-is-jsonmatch)
+  - [Lazy evaluation](#lazy-evaluation)
+  - [Special `_key` handling](#special-_key-handling)
+  - [Path manipulation](#path-manipulation)
+- [JSONMatch Language Reference](#jsonmatch-language-reference)
+- [API Reference](#api-reference)
+  - [`jsonMatch(value, path, basePath?)`](#jsonmatchvalue-path-basepath)
+  - [`stringifyPath(path)`](#stringifypathpath)
+  - [`getIndexForKey(array, key)`](#getindexforkeyarray-key)
+  - [`getPathDepth(path)`](#getpathdepthpath)
+  - [`joinPaths(base, path)`](#joinpathsbase-path)
+  - [`parsePath(input)`](#parsepathinput)
+  - [`slicePath(path, start?, end?)`](#slicepathpath-start-end)
+- [LICENSE](#license)
 
 ## Installation
 
@@ -16,409 +29,229 @@ A powerful, lightweight implementation of the JSONMatch path expression language
 npm install @sanity/json-match
 ```
 
-## Quick Start
+## Core Concepts
 
-```javascript
+### What is JSONMatch?
+
+[JSONMatch](https://www.sanity.io/docs/content-lake/json-match) is a query language designed to select one or more sub-values within a JSON document.
+
+Here's a quick example:
+
+```typescript
 import {jsonMatch} from '@sanity/json-match'
 
 const data = {
   users: [
-    {name: 'Alice', age: 25, active: true},
-    {name: 'Bob', age: 30, active: false},
-    {name: 'Carol', age: 35, active: true},
+    {name: 'Alice', _key: 'alice', age: 25, active: true},
+    {name: 'Bob', _key: 'bob', age: 30, active: false},
+    {name: 'Carol', _key: 'carol', age: 35, active: true},
   ],
 }
 
-// Find all active users
-const activeUsers = Array.from(jsonMatch(data, 'users[active == true]'))
-console.log(activeUsers.map((match) => match.value))
-// [{ name: "Alice", age: 25, active: true }, { name: "Carol", age: 35, active: true }]
+// 1. Write a path expression
+const expression = 'users[active == true]'
 
-// Get names of users over 28
-const olderUserNames = Array.from(jsonMatch(data, 'users[age > 28].name'))
-console.log(olderUserNames.map((match) => match.value))
-// ["Bob", "Carol"]
+// 2. Evaluate expression against a value
+const matches = jsonMatch(data, expression)
+
+// `jsonMatch` returns a generator of matches
+for (const match of matches) {
+  console.log('Matched Value:', match.value)
+  console.log('Path to Value:', match.path)
+}
+
+// Output:
+//
+// Matched Value: {name: 'Alice', _key: 'alice', age: 25, active: true}
+// Path to Value: ['users', {_key: 'alice'}]
+//
+// Matched Value: {name: 'Carol', _key: 'carol', age: 35, active: true}
+// Path to Value: ['users', {_key: 'carol'}]
 ```
 
-## Core Concepts
+To use JSONMatch you:
 
-### JSONMatch vs Traditional Paths
+1. **Write a path expression** (e.g. `users[active == true]`) that describes where to search (e.g. `users`) and what constraints must be satisfied (e.g. `[active == true]`). To use a path expression, you…
+2. **Evaluate it against a JSON value**. The evaluator then searches the document and returns all the matches that satisfy your expression.
 
-Traditional Sanity paths use a simple array format like `['users', 0, 'name']` to point to a single value. JSONMatch expressions are more powerful - they can match multiple values and support complex filtering:
+For each match found, you get back a `MatchEntry` object:
 
-```typescript
-// Traditional path (single value)
-const traditionalPath = ['users', 0, 'name']
+````ts
+// This object is yielded from `jsonMatch`
+export interface MatchEntry {
+  /**
+   * The subvalue found within the given JSON value. This is
+   * referentially equal to the nested value in the JSON object.
+   */
+  value: unknown
+  /**
+   * An array of keys and indices representing the location of the value within
+   * the original value. Note that the evaluator will only yield paths that
+   * address a single value.
+   *
+   * ```ts
+   * const path: Path = ['users', 0, 'profile', { _key: 'email' }]
+   * // Represents: users[0].profile[_key=="email"]
+   * ```
+   */
+  path: SingleValuePath
+}
 
-// JSONMatch expression (potentially multiple values)
-const jsonMatchExpr = 'users[age > 25].name'
-```
+export type IndexTuple = [number | '', number | ''] // array slice e.g. [1:3]
+export type KeyedSegment = {_key: string} // key constraint e.g. [_key=="val"]
 
-### Match Entries
+export type PathSegment = string | number | KeyedSegment | IndexTuple
+export type Path = PathSegment[]
 
-When you evaluate a JSONMatch expression, you get back `MatchEntry` objects containing both the matched value and its path:
+// `SingleValuePath`s don't include the index tuple since that can map to many values
+export type SingleValuePath = Exclude<PathSegment, IndexTuple>[]
+
+// the `jsonMatch` function returns a Generator of `MatchEntry`
+export function jsonMatch(value, pathExpr): Generator<MatchEntry>
+````
+
+> [!TIP]
+> The `Path` format is a common representation in many other Sanity libraries making it easy to integrate with other Sanity tools.
+>
+> This path type can be turned back into a string with [`stringifyPath`](#stringifypathpath) if desired. See the [path manipulation](#path-manipulation) section for more path utilities.
+
+### Lazy evaluation
+
+The `jsonMatch` function is **lazy**, meaning it returns a [generator](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator) that yields matches one by one, only when you ask for them. It doesn't compute all possible matches upfront.
+
+This design offers a significant performance advantage, especially when you're working with large datasets and only need the first few matches. For example, if you're looking for the first active item in an array of thousands of elements, `jsonMatch` will stop searching as soon as it finds it.
 
 ```javascript
 import {jsonMatch} from '@sanity/json-match'
 
-const data = {users: [{name: 'Alice'}, {name: 'Bob'}]}
-const matches = Array.from(jsonMatch(data, 'users[*].name'))
-
-matches.forEach((match) => {
-  console.log(`Value: ${match.value}, Path: ${JSON.stringify(match.path)}`)
-})
-// Value: Alice, Path: ["users",0,"name"]
-// Value: Bob, Path: ["users",1,"name"]
-```
-
-### Lazy Evaluation with Generators
-
-JSONMatch uses generators for efficient lazy evaluation, meaning you can process large datasets without loading everything into memory:
-
-```javascript
-const hugeDataset = {
-  items: new Array(1000000).fill(0).map((_, i) => ({id: i, active: i % 1000 === 0})),
-}
-
-// Find first active item without processing the entire array
-for (const match of jsonMatch(hugeDataset, 'items[active == true]')) {
-  console.log('First active item:', match.value)
-  break // Only processes until first match is found
-}
-```
-
-## Path Expression Syntax
-
-### Basic Property Access
-
-```javascript
-const data = {user: {profile: {email: 'alice@example.com'}}}
-
-// Simple property
-jsonMatch(data, 'user') // [{ value: { profile: { email: "..." } }, path: ["user"] }]
-
-// Nested properties
-jsonMatch(data, 'user.profile.email') // [{ value: "alice@example.com", path: ["user", "profile", "email"] }]
-
-// Quoted identifiers for special characters
-jsonMatch(data, "'user-data'.'first-name'")
-```
-
-### Array Access
-
-```javascript
-const data = {items: ['apple', 'banana', 'cherry', 'date']}
-
-// By index
-jsonMatch(data, 'items[0]') // [{ value: "apple", path: ["items", 0] }]
-jsonMatch(data, 'items[-1]') // [{ value: "date", path: ["items", 3] }]
-
-// Slicing
-jsonMatch(data, 'items[1:3]') // banana, cherry
-jsonMatch(data, 'items[1:]') // banana, cherry, date
-jsonMatch(data, 'items[:2]') // apple, banana
-
-// Multiple indices
-jsonMatch(data, 'items[0, 2]') // apple, cherry
-
-// Wildcard (all elements)
-jsonMatch(data, 'items[*]') // all items
-```
-
-### Filtering with Constraints
-
-```javascript
+// A large array where the match is halfway through
 const data = {
-  products: [
-    {name: 'Laptop', price: 999, category: 'electronics'},
-    {name: 'Book', price: 15, category: 'books'},
-    {name: 'Phone', price: 699, category: 'electronics'},
-  ],
+  items: Array.from({length: 1000}, (_, i) => ({
+    id: i,
+    active: i === 500, // Only item at index 500 is active
+  })),
 }
 
-// Comparison operators
-jsonMatch(data, 'products[price > 500]') // Laptop, Phone
-jsonMatch(data, 'products[price <= 20]') // Book
-jsonMatch(data, "products[category == 'books']") // Book
-jsonMatch(data, "products[category != 'books']") // Laptop, Phone
+// Find the first active item
+const generator = jsonMatch(data, 'items[active == true]')
 
-// Existence checks
-jsonMatch(data, 'products[price?]') // All products (they all have price)
+// .next().value gets the first match without iterating the whole array
+const firstMatch = generator.next().value
 
-// Multiple constraints (OR logic)
-jsonMatch(data, "products[price < 100, category == 'electronics']") // Book, Laptop, Phone
-
-// Chained constraints (AND logic)
-jsonMatch(data, "products[category == 'electronics'][price > 700]") // Phone only
+console.log('Found:', firstMatch.value)
+// Found: { id: 500, active: true }
 ```
 
-### Recursive Descent
+This makes the library suitable for performance-critical tasks where you need to find a single value quickly.
 
-```javascript
-const data = {
-  company: {
-    departments: [
-      {
-        name: 'Engineering',
-        teams: [
-          {name: 'Frontend', members: [{name: 'Alice'}]},
-          {name: 'Backend', members: [{name: 'Bob'}]},
-        ],
-      },
-    ],
-  },
-}
+### Special `_key` handling
 
-// Find all names anywhere in the structure
-jsonMatch(data, '..name')
-// ["Engineering", "Frontend", "Alice", "Backend", "Bob"]
+In Sanity documents, it's good practice to add a unique `_key` property to objects inside an array. This gives each object a stable identifier that doesn't change even if the array is reordered.
 
-// Recursive descent with filtering
-jsonMatch(data, "..members[name == 'Alice']")
-// [{ name: "Alice" }]
-```
+`jsonMatch` has special first-class support for `_key`s to improve both path resilience and performance.
 
-### Expression Unions
+1. When a matched object has a `_key`, the returned path will use the key instead of the array index. This creates a path that remains valid even if other items are added, removed, or reordered.
+2. When you filter an array by `_key` (e.g., `items[_key == "b"]`), this library creates and caches a lookup of indexes so subsequent evaluations of the same path expression will be cheap. See [`getIndexForKey`](#getindexforkeyarray-key) for more info.
 
-```javascript
-const data = {user: {name: 'Alice', email: 'alice@example.com'}, config: {theme: 'dark'}}
+> [!WARNING]
+> For these optimizations to work reliably, **`_key` values are assumed to be unique within any given array.** If an array contains objects with duplicate `_key`s, the behavior is undefined, as the evaluator will typically match only the first object it finds.
 
-// Select multiple expressions
-jsonMatch(data, '[user.name, user.email, config.theme]')
-// ["Alice", "alice@example.com", "dark"]
-```
+### Path manipulation
 
-## API Reference
+This library ships with some helper functions to help modify and normalize paths. These utilities allow you to programmatically construct, deconstruct, and analyze paths in a consistent way, regardless of their original format (string, array, or AST).
 
-### Core Functions
+Here are a few common use cases:
 
-#### `jsonMatch(value, expression, basePath?)`
+```ts
+import {joinPaths, slicePath, getPathDepth, stringifyPath, type Path} from '@sanity/json-match'
 
-The main function for evaluating JSONMatch expressions.
+// Path utilities work with path strings...
+const originalPath = 'users[0].posts[_key=="abc"].title'
+const parentFromString = slicePath(originalPath, 0, -1)
+// -> users[0].posts[_key=="abc"]
 
-```javascript
-import {jsonMatch} from '@sanity/json-match'
+// ...and Path arrays.
+const originalPathArray: Path = ['users', 0, 'posts', {_key: 'abc'}, 'title']
+const parentFromArray = slicePath(originalPathArray, 0, -1)
+// -> users[0].posts[_key=="abc"]
 
-const data = {users: [{name: 'Alice', age: 25}]}
+// `joinPaths` also accepts both formats.
+const newPath = joinPaths(parentFromArray, 'lastModified')
+// -> users[0].posts[_key=="abc"].lastModified
 
-// Basic usage
-const matches = Array.from(jsonMatch(data, 'users[*].name'))
+// You can convert a Path array to its string equivalent with `stringifyPath`.
+const pathString = stringifyPath(originalPathArray)
+// -> users[0].posts[_key=="abc"].title
+console.log(pathString === originalPath) // true
 
-// With base path (useful for nested evaluation)
-const nestedMatches = Array.from(jsonMatch(data.users, '[*].name', ['users']))
-```
-
-#### `stringifyPath(ast)`
-
-Convert a parsed JSONMatch AST back to its string representation.
-
-```javascript
-import {parse, stringifyPath} from '@sanity/json-match'
-
-const ast = parse('users[age > 21].name')
-const str = stringifyPath(ast) // "users[age>21].name"
-
-// Useful for normalizing expressions
-const normalized = stringifyPath(parse('  users  [  age  >  21  ] . name  '))
-console.log(normalized) // "users[age>21].name"
-```
-
-### Path Manipulation Utilities
-
-#### `getParentPath(path)`
-
-Extract the parent path from any path format.
-
-```javascript
-import {getParentPath} from '@sanity/json-match'
-
-getParentPath('user.profile.email') // 'user.profile'
-getParentPath('items[0].name') // 'items[0]'
-getParentPath(['user', 'profile']) // 'user'
-getParentPath('user') // undefined (no parent)
-```
-
-#### `addPathSegment(path, segment)`
-
-Add a new segment to an existing path.
-
-```javascript
-import {addPathSegment} from '@sanity/json-match'
-
-// Adding properties
-addPathSegment('user', 'profile') // 'user.profile'
-
-// Adding array indices
-addPathSegment('items', 0) // 'items[0]'
-
-// Adding keyed objects
-addPathSegment('users', {_key: 'u1'}) // 'users[_key=="u1"]'
-
-// Adding slices
-addPathSegment('items', [1, 3]) // 'items[1:3]'
-
-// Chaining operations
-let path = 'data'
-path = addPathSegment(path, 'users') // 'data.users'
-path = addPathSegment(path, 0) // 'data.users[0]'
-path = addPathSegment(path, 'profile') // 'data.users[0].profile'
-```
-
-#### `parsePath(input)`
-
-Parse various path formats into a standardized AST.
-
-```javascript
-import {parsePath} from '@sanity/json-match'
-
-// String expressions
-parsePath('user.profile.email')
-
-// CompatPath arrays
-parsePath(['users', 0, {_key: 'profile'}, 'email'])
-
-// Already parsed AST (returns unchanged)
-const ast = parse('items[*]')
-parsePath(ast) === ast // true
-```
-
-#### `getIndexForKey(array, key)`
-
-Efficiently find the array index for objects with `_key` properties (Sanity's keyed arrays).
-
-```javascript
-import {getIndexForKey} from '@sanity/json-match'
-
-const keyedArray = [
-  {_key: 'item1', name: 'First'},
-  {_key: 'item2', name: 'Second'},
-  {_key: 'item3', name: 'Third'},
-]
-
-const index = getIndexForKey(keyedArray, 'item2') // 1
-console.log(keyedArray[index]) // { _key: 'item2', name: 'Second' }
-
-// Performance: First call builds cache, subsequent calls are O(1)
-const index2 = getIndexForKey(keyedArray, 'item3') // Fast lookup
-```
-
-## Advanced Usage
-
-### Working with Sanity Documents
-
-```javascript
-import {jsonMatch, addPathSegment, getParentPath} from '@sanity/json-match'
-
-// Sanity document structure
-const document = {
-  _id: 'doc1',
-  title: 'My Article',
-  content: [
-    {
-      _type: 'block',
-      _key: 'block1',
-      children: [
-        {_type: 'span', _key: 'span1', text: 'Hello '},
-        {_type: 'span', _key: 'span2', text: 'world', marks: ['strong']},
-      ],
-    },
-  ],
-}
-
-// Find all spans with strong marks
-const strongSpans = Array.from(
-  jsonMatch(document, "content[_type == 'block'].children[marks[@ == 'strong']]"),
-)
-
-// Build path to a specific span
-let spanPath = addPathSegment('content', {_key: 'block1'})
-spanPath = addPathSegment(spanPath, 'children')
-spanPath = addPathSegment(spanPath, {_key: 'span2'})
-// Result: "content[_key=='block1'].children[_key=='span2']"
-
-// Get the parent block path
-const blockPath = getParentPath(spanPath)
-// Result: "content[_key=='block1'].children"
-```
-
-### Performance Optimization
-
-```javascript
-// Use generators for large datasets
-function findFirst(data, expression, predicate) {
-  for (const match of jsonMatch(data, expression)) {
-    if (predicate(match.value)) {
-      return match.value
-    }
-  }
-  return undefined
-}
-
-// Efficient keyed array operations
-const users = [
-  /* thousands of users with _key properties */
-]
-const targetUserIndex = getIndexForKey(users, 'user-12345') // O(1) after first call
-```
-
-### Type Safety
-
-When using TypeScript, the library provides full type definitions:
-
-```typescript
-import {jsonMatch, type MatchEntry, type Path} from '@sanity/json-match'
-
-interface User {
-  name: string
-  age: number
-  active: boolean
-}
-
-const data = {
-  users: [{name: 'Alice', age: 25, active: true}],
-}
-
-// Fully typed results
-const userMatches: MatchEntry[] = Array.from(jsonMatch(data, 'users[*]'))
-const users: User[] = userMatches.map((match) => match.value as User)
-
-// Paths use a simple segment format
-const paths: Path[] = userMatches.map((match) => match.path)
+// Get the depth (number of segments) of a path.
+const depth = getPathDepth(originalPath)
+// -> 5
 ```
 
 ## JSONMatch Language Reference
 
-### Quick Reference
+See our [official documentation for JSONMatch](https://www.sanity.io/docs/content-lake/json-match).
 
-| Expression       | Description       | Example                   |
-| ---------------- | ----------------- | ------------------------- |
-| `field`          | Property access   | `user.name`               |
-| `[index]`        | Array index       | `items[0]`, `items[-1]`   |
-| `[start:end]`    | Array slice       | `items[1:3]`, `items[2:]` |
-| `[*]`            | All elements      | `users[*].name`           |
-| `[condition]`    | Filter            | `users[age > 21]`         |
-| `..`             | Recursive descent | `..name`                  |
-| `[expr1, expr2]` | Union             | `[name, email]`           |
-| `field?`         | Existence check   | `users[email?]`           |
+```javascript
+import {jsonMatch} from '@sanity/json-match'
 
-### Operators
+// In this reference we will use the following example JSON object to extract data from:
+const data = {
+  name: 'fred',
+  friends: [
+    {name: 'mork', age: 40, favoriteColor: 'red'},
+    {name: 'mindy', age: 32, favoriteColor: 'blue'},
+    {name: 'franklin', favoriteColor: 'yellow'},
+    {name: 'bob', favoriteColor: 'green'},
+    {name: 'alice', favoriteColor: 'blue'},
+  ],
+  roles: ['admin', 'owner'],
+  contactInfo: {
+    streetAddress: '42 Mountain Road',
+    state: {
+      shortName: 'WY',
+      longName: 'Wyoming',
+    },
+  },
+}
 
-| Operator | Description      | Example                |
-| -------- | ---------------- | ---------------------- |
-| `==`     | Equal            | `[status == "active"]` |
-| `!=`     | Not equal        | `[type != "draft"]`    |
-| `>`      | Greater than     | `[age > 18]`           |
-| `<`      | Less than        | `[price < 100]`        |
-| `>=`     | Greater or equal | `[score >= 90]`        |
-| `<=`     | Less or equal    | `[count <= 10]`        |
+function evaluate(expression) {
+  const matches = jsonMatch(data, expression)
+  const values = Array.from(matches).map((match) => match.value)
+  console.log(values)
+}
 
-### Formal Grammar
+// Given the example document, these expressions can be evaluated
+evaluate('name') // [ 'fred' ]
+evaluate('friends[*].name') // [ 'mork', 'mindy', 'franklin', 'bob', 'alice' ]
+evaluate('friends[age > 35].name') // [ 'mork' ]
+evaluate('friends[age > 30, favoriteColor == "blue"].name') // [ 'mork', 'mindy', 'alice' ]
+evaluate('friends[age?].age') // [ 40, 32 ]
+evaluate('friends[0].name') // [ 'mork' ]
+evaluate('friends[1:3].name') // [ 'mindy', 'franklin' ]
+evaluate('friends[0, 2:3].name') // [ 'mork', 'franklin' ]
+evaluate('contactInfo.state.shortName') // [ 'WY' ]
+evaluate('contactInfo.state[shortName, longName]') // [ 'WY', 'Wyoming' ]
+evaluate('friends.age[@ > 35]') // [ 40 ]
+evaluate('roles') // [ [ 'admin', 'owner' ] ]
+evaluate('roles[*]') // [ 'admin', 'owner' ]
+evaluate('roles[0]') // [ 'admin' ]
+evaluate('roles[-1]') // [ 'owner' ]
+evaluate('contactInfo..shortName') // [ 'WY' ]
+evaluate('[contactInfo.state.shortName, roles]') // [ 'WY', [ 'admin', 'owner' ] ]
+```
 
-```enbf
+<details>
+
+<summary>Full EBNF Grammar</summary>
+
+```ebnf
 Expression ::=
   | String // literal
   | Number // literal
   | Boolean // literal
+  | Null // literal
   | Path
 
 
@@ -486,6 +319,9 @@ Boolean ::=
   | 'true'
   | 'false'
 
+Null ::=
+  | 'null'
+
 String ::=
   | '"' StringContent '"'
 
@@ -509,6 +345,135 @@ QuotedIdentifierContent ::=
   | (EscapeSequence | [^'\\])*
 ```
 
-## License
+</details>
 
-MIT License - see LICENSE file for details.
+## API Reference
+
+### `jsonMatch(value, path, basePath?)`
+
+The main function for evaluating JSONMatch expressions.
+
+```javascript
+import {jsonMatch} from '@sanity/json-match'
+
+const data = {users: [{name: 'Alice', age: 25}]}
+
+// Basic usage
+const matches = Array.from(jsonMatch(data, 'users[*].name'))
+
+// With base path (useful for nested evaluation)
+const nestedMatches = Array.from(jsonMatch(data.users, '[*].name', ['users']))
+```
+
+### `stringifyPath(path)`
+
+Convert various path formats to their string representation.
+
+This function can handle JSONMatch AST nodes, Path arrays, and string expressions.
+It's useful for normalizing different path formats into a consistent string format.
+
+```javascript
+import {parsePath, stringifyPath} from '@sanity/json-match'
+
+// Convert AST back to string
+const ast = parsePath('users[age > 21].name')
+const str = stringifyPath(ast) // "users[age>21].name"
+
+// Convert Path array to string
+const pathArr = ['users', 0, {_key: 'profile'}, 'email']
+const pathStr = stringifyPath(pathArr) // "users[0][_key==\"profile\"].email"
+
+// String expressions are returned unchanged
+const existing = 'items[*].name'
+const result = stringifyPath(existing) // "items[*].name" (same string)
+
+// Useful for normalizing expressions
+const normalized = stringifyPath(parsePath('  users  [  age  >  21  ] . name  '))
+console.log(normalized) // "users[age>21].name"
+```
+
+### `getIndexForKey(array, key)`
+
+Efficiently find the array index for objects with `_key` properties (Sanity's keyed arrays).
+
+```javascript
+import {getIndexForKey} from '@sanity/json-match'
+
+const keyedArray = [
+  {_key: 'item1', name: 'First'},
+  {_key: 'item2', name: 'Second'},
+  {_key: 'item3', name: 'Third'},
+]
+
+const index = getIndexForKey(keyedArray, 'item2') // 1
+console.log(keyedArray[index]) // { _key: 'item2', name: 'Second' }
+
+// Performance: First call builds cache, subsequent calls are O(1)
+const index2 = getIndexForKey(keyedArray, 'item3') // Fast lookup
+```
+
+### `getPathDepth(path)`
+
+Calculates the number of segments in a path.
+
+```javascript
+import {getPathDepth} from '@sanity/json-match'
+
+getPathDepth('user.profile.email') // 3
+getPathDepth('items[0].name') // 3
+getPathDepth(['users', {_key: 'alice'}]) // 2
+```
+
+### `joinPaths(base, path)`
+
+Joins two path segments into a single path string.
+
+```javascript
+import {joinPaths} from '@sanity/json-match'
+
+// Adding properties
+joinPaths('user', 'profile') // 'user.profile'
+
+// Chaining operations
+let path = 'data'
+path = joinPaths(path, 'users') // 'data.users'
+path = joinPaths(path, '[0]') // 'data.users[0]'
+```
+
+### `parsePath(input)`
+
+Parse various path formats into a standardized AST.
+
+```javascript
+import {parsePath} from '@sanity/json-match'
+
+// String expressions
+parsePath('user.profile.email')
+
+// Path arrays
+parsePath(['users', 0, {_key: 'profile'}, 'email'])
+
+// Already parsed AST (returns unchanged)
+const ast = parsePath('items[*]')
+parsePath(ast) === ast // true
+```
+
+### `slicePath(path, start?, end?)`
+
+Extracts a section of a path, similar to `Array.prototype.slice`.
+
+```javascript
+import {slicePath} from '@sanity/json-match'
+
+slicePath('a.b.c.d.e', 1, 4) // 'b.c.d'
+
+// Get parent path
+slicePath('user.profile.email', 0, -1) // 'user.profile'
+
+// Get last segment
+slicePath('items[0].name', -1) // 'name'
+```
+
+## LICENSE
+
+MIT License - see [LICENSE](./LICENSE) file for details.
