@@ -662,6 +662,205 @@ describe('Match Function', () => {
       const results = Array.from(jsonMatch(testData, parse('config.version[0]')))
       expect(results).toHaveLength(0) // Cannot index a string
     })
+
+    test('handles null literal as a standalone expression', () => {
+      const results = Array.from(jsonMatch({value: null}, parse('null')))
+      // Should not match any path, only yield the literal value with LITERAL_PATH (which is skipped)
+      expect(results).toHaveLength(0)
+    })
+
+    test('handles null in union expression', () => {
+      const results = Array.from(jsonMatch({value: null}, parse('[null, true, false]')))
+      // Should not match any path, only yield the literal values with LITERAL_PATH (which is skipped)
+      expect(results).toHaveLength(0)
+    })
+
+    test('handles null in comparison constraint', () => {
+      const data = {
+        items: [{value: null}, {value: 1}, {value: null}],
+      }
+      const results = Array.from(jsonMatch(data, parse('items[value == null]')))
+      expect(results).toHaveLength(2)
+      expect(results[0].value).toBe(data.items[0])
+      expect(results[0].path).toEqual(['items', 0])
+      expect(results[1].value).toBe(data.items[2])
+      expect(results[1].path).toEqual(['items', 2])
+    })
+
+    test('handles null as a property value in comparison', () => {
+      const data = {
+        items: [{property: null}, {property: 'not-null'}, {property: null}],
+      }
+      const results = Array.from(jsonMatch(data, parse('items[property == null]')))
+      expect(results).toHaveLength(2)
+      expect(results[0].value).toBe(data.items[0])
+      expect(results[0].path).toEqual(['items', 0])
+      expect(results[1].value).toBe(data.items[2])
+      expect(results[1].path).toEqual(['items', 2])
+    })
+  })
+
+  describe('Identifier on Array', () => {
+    test('evaluates identifier against array items recursively', () => {
+      const arrayData = {
+        items: [
+          {name: 'Alice', age: 25},
+          {name: 'Bob', age: 30},
+          {name: 'Carol', age: 35},
+        ],
+      }
+
+      // When evaluating 'name' against an array, it should apply to each array item
+      const results = Array.from(jsonMatch(arrayData, parse('items.name')))
+      expect(results).toHaveLength(3)
+      const [first, second, third] = results
+      expect(first.value).toBe('Alice')
+      expect(first.path).toEqual(['items', 0, 'name'])
+      expect(second.value).toBe('Bob')
+      expect(second.path).toEqual(['items', 1, 'name'])
+      expect(third.value).toBe('Carol')
+      expect(third.path).toEqual(['items', 2, 'name'])
+    })
+
+    test('evaluates identifier against array items with nested properties', () => {
+      const nestedData = {
+        users: [
+          {profile: {firstName: 'Alice', lastName: 'Smith'}},
+          {profile: {firstName: 'Bob', lastName: 'Jones'}},
+        ],
+      }
+
+      const results = Array.from(jsonMatch(nestedData, parse('users.profile.firstName')))
+      expect(results).toHaveLength(2)
+      const [first, second] = results
+      expect(first.value).toBe('Alice')
+      expect(first.path).toEqual(['users', 0, 'profile', 'firstName'])
+      expect(second.value).toBe('Bob')
+      expect(second.path).toEqual(['users', 1, 'profile', 'firstName'])
+    })
+
+    test('evaluates identifier against array items with mixed data types', () => {
+      const mixedData = {
+        items: [
+          {name: 'Alice', active: true},
+          {name: 'Bob', active: false},
+          {name: 'Carol', active: true},
+        ],
+      }
+
+      const results = Array.from(jsonMatch(mixedData, parse('items.active')))
+      expect(results).toHaveLength(3)
+      const [first, second, third] = results
+      expect(first.value).toBe(true)
+      expect(first.path).toEqual(['items', 0, 'active'])
+      expect(second.value).toBe(false)
+      expect(second.path).toEqual(['items', 1, 'active'])
+      expect(third.value).toBe(true)
+      expect(third.path).toEqual(['items', 2, 'active'])
+    })
+
+    test('evaluates identifier against array items with optional properties', () => {
+      const optionalData = {
+        users: [
+          {name: 'Alice', email: 'alice@example.com'},
+          {name: 'Bob'}, // no email
+          {name: 'Carol', email: 'carol@example.com'},
+        ],
+      }
+
+      const results = Array.from(jsonMatch(optionalData, parse('users.email')))
+      expect(results).toHaveLength(2) // Only Alice and Carol have email
+      const [first, second] = results
+      expect(first.value).toBe('alice@example.com')
+      expect(first.path).toEqual(['users', 0, 'email'])
+      expect(second.value).toBe('carol@example.com')
+      expect(second.path).toEqual(['users', 2, 'email'])
+    })
+
+    test('evaluates identifier against array items with keyed objects', () => {
+      const keyedArrayData = {
+        items: [
+          {_key: 'item1', name: 'First', price: 100},
+          {_key: 'item2', name: 'Second', price: 200},
+        ],
+      }
+
+      const results = Array.from(jsonMatch(keyedArrayData, parse('items.name')))
+      expect(results).toHaveLength(2)
+      const [first, second] = results
+      expect(first.value).toBe('First')
+      expect(first.path).toEqual(['items', {_key: 'item1'}, 'name'])
+      expect(second.value).toBe('Second')
+      expect(second.path).toEqual(['items', {_key: 'item2'}, 'name'])
+    })
+
+    test('evaluates identifier against empty array', () => {
+      const emptyArrayData = {
+        items: [],
+      }
+
+      const results = Array.from(jsonMatch(emptyArrayData, parse('items.name')))
+      expect(results).toHaveLength(0)
+    })
+
+    test('evaluates identifier against array with non-object items', () => {
+      const primitiveArrayData = {
+        items: ['string1', 'string2', 'string3'],
+      }
+
+      // When evaluating 'length' against an array of strings, it should not work
+      // because strings are not objects and don't have properties accessible via identifier
+      const results = Array.from(jsonMatch(primitiveArrayData, parse('items.length')))
+      expect(results).toHaveLength(0) // No results because strings don't have 'length' as a property
+    })
+
+    test('evaluates identifier against array with mixed primitive and object items', () => {
+      const mixedArrayData = {
+        items: ['string1', {name: 'Alice', age: 25}, 'string2', {name: 'Bob', age: 30}],
+      }
+
+      // Should only match objects that have the 'name' property
+      const results = Array.from(jsonMatch(mixedArrayData, parse('items.name')))
+      expect(results).toHaveLength(2)
+      const [first, second] = results
+      expect(first.value).toBe('Alice')
+      expect(first.path).toEqual(['items', 1, 'name'])
+      expect(second.value).toBe('Bob')
+      expect(second.path).toEqual(['items', 3, 'name'])
+    })
+
+    test('evaluates identifier against array with null and undefined items', () => {
+      const nullArrayData = {
+        items: [{name: 'Alice'}, null, {name: 'Bob'}, undefined, {name: 'Carol'}],
+      }
+
+      const results = Array.from(jsonMatch(nullArrayData, parse('items.name')))
+      expect(results).toHaveLength(3) // Only the objects with name property
+      const [first, second, third] = results
+      expect(first.value).toBe('Alice')
+      expect(first.path).toEqual(['items', 0, 'name'])
+      expect(second.value).toBe('Bob')
+      expect(second.path).toEqual(['items', 2, 'name'])
+      expect(third.value).toBe('Carol')
+      expect(third.path).toEqual(['items', 4, 'name'])
+    })
+
+    test('evaluates identifier against array with deeply nested objects', () => {
+      const deepData = {
+        data: [
+          {user: {profile: {personal: {name: 'Alice', age: 25}}}},
+          {user: {profile: {personal: {name: 'Bob', age: 30}}}},
+        ],
+      }
+
+      const results = Array.from(jsonMatch(deepData, parse('data.user.profile.personal.name')))
+      expect(results).toHaveLength(2)
+      const [first, second] = results
+      expect(first.value).toBe('Alice')
+      expect(first.path).toEqual(['data', 0, 'user', 'profile', 'personal', 'name'])
+      expect(second.value).toBe('Bob')
+      expect(second.path).toEqual(['data', 1, 'user', 'profile', 'personal', 'name'])
+    })
   })
 
   describe('Generator Behavior', () => {

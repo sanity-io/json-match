@@ -6,7 +6,7 @@ import {createCursor, type Cursor} from './cursor'
  *
  * @public
  */
-export type ExprNode = NumberNode | StringNode | BooleanNode | PathNode
+export type ExprNode = NumberNode | StringNode | BooleanNode | NullNode | PathNode
 
 /**
  * Represents a path expression in the JSONMatch AST.
@@ -105,6 +105,13 @@ export type NumberNode = {type: 'Number'; value: number}
 export type BooleanNode = {type: 'Boolean'; value: boolean}
 
 /**
+ * Represents a null literal in the JSONMatch AST.
+ *
+ * @public
+ */
+export type NullNode = {type: 'Null'}
+
+/**
  * Represents a wildcard (*) operation in the JSONMatch AST.
  *
  * @public
@@ -112,7 +119,7 @@ export type BooleanNode = {type: 'Boolean'; value: boolean}
 export type WildcardNode = {type: 'Wildcard'}
 
 /**
- * Represents the current context (@/$) in the JSONMatch AST.
+ * Represents the current context (`@`/`$`) in the JSONMatch AST.
  *
  * @public
  */
@@ -159,8 +166,6 @@ interface TokenCursor extends Cursor<Token, Token['type']> {
  * const complexAst = parse('data..items[price > 100, category == "electronics"].name')
  * // Returns a nested PathNode structure
  * ```
- *
- * @throws {SyntaxError} When the expression has invalid syntax
  *
  * @public
  */
@@ -215,6 +220,11 @@ function parseExpression(cursor: TokenCursor): ExprNode {
     case 'Boolean': {
       const {value} = cursor.consume('Boolean')
       return {type: 'Boolean', value}
+    }
+
+    case 'Null': {
+      cursor.consume('Null')
+      return {type: 'Null'}
     }
 
     default: {

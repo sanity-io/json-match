@@ -1,12 +1,12 @@
 import {describe, test, expect} from 'vitest'
 import {parse} from './parse'
-import {stringifyPath} from './stringify'
+import {stringifyExpression} from './stringify'
 
 describe('stringify', () => {
   // Helper function to test round-trip: string -> AST -> string
   function testRoundTrip(expression: string, expectedOutput?: string) {
     const ast = parse(expression)
-    const stringified = stringifyPath(ast)
+    const stringified = stringifyExpression(ast)
     const expected = expectedOutput || expression
     expect(stringified).toBe(expected)
 
@@ -17,17 +17,28 @@ describe('stringify', () => {
 
   describe('Literal Expressions', () => {
     test('stringifies boolean literals', () => {
-      expect(stringifyPath(parse('true'))).toBe('true')
-      expect(stringifyPath(parse('false'))).toBe('false')
+      expect(stringifyExpression(parse('true'))).toBe('true')
+      expect(stringifyExpression(parse('false'))).toBe('false')
+    })
+
+    test('stringifies null literal', () => {
+      expect(stringifyExpression(parse('null'))).toBe('null')
     })
 
     test('stringifies boolean literals in expressions', () => {
-      expect(stringifyPath(parse('items[active == true]'))).toBe('items[active==true]')
-      expect(stringifyPath(parse('items[visible != false]'))).toBe('items[visible!=false]')
+      expect(stringifyExpression(parse('items[active == true]'))).toBe('items[active==true]')
+      expect(stringifyExpression(parse('items[visible != false]'))).toBe('items[visible!=false]')
     })
 
-    test('stringifies mixed boolean and other literals', () => {
-      expect(stringifyPath(parse('[true, false, "text", 42]'))).toBe('[true,false,"text",42]')
+    test('stringifies null literal in expressions', () => {
+      expect(stringifyExpression(parse('items[value == null]'))).toBe('items[value==null]')
+      expect(stringifyExpression(parse('items[property != null]'))).toBe('items[property!=null]')
+    })
+
+    test('stringifies mixed boolean, null and other literals', () => {
+      expect(stringifyExpression(parse('[true, false, null, "text", 42]'))).toBe(
+        '[true,false,null,"text",42]',
+      )
     })
   })
 
@@ -144,12 +155,12 @@ describe('stringify', () => {
   describe('Quoted Identifiers', () => {
     test('quotes identifiers that need quoting', () => {
       const ast = parse("'field-name'")
-      expect(stringifyPath(ast)).toBe("'field-name'")
+      expect(stringifyExpression(ast)).toBe("'field-name'")
     })
 
     test('does not quote simple identifiers', () => {
       const ast = parse('simpleField')
-      expect(stringifyPath(ast)).toBe('simpleField')
+      expect(stringifyExpression(ast)).toBe('simpleField')
     })
 
     test('handles escaped quotes in identifiers', () => {
@@ -201,7 +212,7 @@ describe('stringify', () => {
   describe('Error Cases', () => {
     test('throws on unknown node types', () => {
       const invalidNode = {type: 'InvalidType'} as any
-      expect(() => stringifyPath(invalidNode)).toThrow('Unknown node type: InvalidType')
+      expect(() => stringifyExpression(invalidNode)).toThrow('Unknown node type: InvalidType')
     })
   })
 })

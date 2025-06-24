@@ -1,7 +1,7 @@
 {
   "name": "@sanity/json-match",
   "version": "1.0.0",
-  "description": "A light-weight and lazy JavaScript implementation of JSONMatch",
+  "description": "A lightweight and lazy implementation of JSONMatch made for JavaScript",
   "keywords": [
     "JSONMatch",
     "sanity",
@@ -38,7 +38,7 @@
   "scripts": {
     "build": "pkg-utils build --strict --check --clean",
     "lint": "eslint .",
-    "test": "vitest --run --coverage"
+    "test": "tsc && vitest --run --coverage"
   },
   "browserslist": "extends @sanity/browserslist-config",
   "prettier": "@sanity/prettier-config",
