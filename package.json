@@ -37,6 +37,7 @@
   ],
   "scripts": {
     "build": "pkg-utils build --strict --check --clean",
+    "install": "npm run build",
     "lint": "eslint .",
     "test": "tsc && vitest --run --coverage"
   },
