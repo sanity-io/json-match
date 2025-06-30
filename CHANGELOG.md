@@ -5,6 +5,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.5](https://github.com/sanity-io/json-match/compare/v1.0.4...v1.0.5) (2025-06-30)
+
+### Bug Fixes
+
+- allow yielding `undefined` for non-existent key constraints ([ad542d2](https://github.com/sanity-io/json-match/commit/ad542d2f8479f22f1ac182b810b99ea2308a440d))
+
 ## [1.0.4](https://github.com/sanity-io/json-match/compare/v1.0.3...v1.0.4) (2025-06-30)
 
 ### Bug Fixes
