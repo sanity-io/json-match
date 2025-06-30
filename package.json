@@ -1,6 +1,6 @@
 {
   "name": "@sanity/json-match",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "A lightweight and lazy implementation of JSONMatch made for JavaScript",
   "keywords": [
     "JSONMatch",

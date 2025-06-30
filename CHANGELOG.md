@@ -5,6 +5,12 @@
 All notable changes to this project will be documented in this file. See
 [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.0.4](https://github.com/sanity-io/json-match/compare/v1.0.3...v1.0.4) (2025-06-30)
+
+### Bug Fixes
+
+- **build:** move build command to `prepublishOnly` instead of `install` ([837bc57](https://github.com/sanity-io/json-match/commit/837bc57fe6524fdbacd05fd992cb05efe4f400fe))
+
 ## [1.0.3](https://github.com/sanity-io/json-match/compare/v1.0.2...v1.0.3) (2025-06-30)
 
 ### Bug Fixes
