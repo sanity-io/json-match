@@ -365,8 +365,10 @@ function* evaluateComparison({
     const _key = getKeyFromComparison(comparison)
     if (_key) {
       const index = getIndexForKey(value, _key)
-      if (typeof index === 'undefined') return
-      yield {value: value[index], path: [...path, {_key}]}
+      yield {
+        value: typeof index === 'number' ? value[index] : undefined,
+        path: [...path, {_key}],
+      }
       return
     }
 

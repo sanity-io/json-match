@@ -616,6 +616,14 @@ describe('Match Function', () => {
       expect(path).toEqual(['users', 999])
     })
 
+    test('yields `undefined` for key constraints on existing arrays', () => {
+      const results = Array.from(jsonMatch(keyedData, parse('items[_key == "item4"]')))
+      expect(results).toHaveLength(1)
+      const {value, path} = results[0]
+      expect(value).toBe(undefined)
+      expect(path).toEqual(['items', {_key: 'item4'}])
+    })
+
     test('returns empty for constraints on non-arrays', () => {
       const results = Array.from(jsonMatch(testData, parse('config[name == "test"]')))
       expect(results).toHaveLength(0)
