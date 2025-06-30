@@ -128,7 +128,7 @@ describe('Match Function', () => {
       const results = Array.from(jsonMatch(testData, parse('users[-1]')))
       expect(results).toHaveLength(1)
       const [{value, path}] = results
-      expect(path).toEqual(['users', 3])
+      expect(path).toEqual(['users', -1])
       expect(value).toEqual(jules)
     })
 
@@ -600,14 +600,20 @@ describe('Match Function', () => {
   })
 
   describe('Edge Cases', () => {
-    test('returns empty for non-existent paths', () => {
+    test('yields `undefined` value if the value is an object and the path is non-existent', () => {
       const results = Array.from(jsonMatch(testData, parse('nonexistent')))
-      expect(results).toHaveLength(0)
+      expect(results).toHaveLength(1)
+      const {value, path} = results[0]
+      expect(value).toBe(undefined)
+      expect(path).toEqual(['nonexistent'])
     })
 
-    test('returns empty for invalid array access', () => {
+    test('yields `undefined` value for non-existent array access', () => {
       const results = Array.from(jsonMatch(testData, parse('users[999]')))
-      expect(results).toHaveLength(0)
+      expect(results).toHaveLength(1)
+      const {value, path} = results[0]
+      expect(value).toBe(undefined)
+      expect(path).toEqual(['users', 999])
     })
 
     test('returns empty for constraints on non-arrays', () => {
@@ -617,7 +623,10 @@ describe('Match Function', () => {
 
     test('handles empty data', () => {
       const results = Array.from(jsonMatch({}, parse('anything')))
-      expect(results).toHaveLength(0)
+      expect(results).toHaveLength(1)
+      const {value, path} = results[0]
+      expect(value).toBe(undefined)
+      expect(path).toEqual(['anything'])
     })
 
     test('handles null values', () => {
@@ -648,9 +657,15 @@ describe('Match Function', () => {
       ])
     })
 
-    test('returns empty when trying to match identifier on array', () => {
+    test('returns nested undefined matches when trying to match identifier on array', () => {
       const results = Array.from(jsonMatch(testData, parse('users.someProperty')))
-      expect(results).toHaveLength(0) // Cannot access property on array
+      expect(results).toHaveLength(4)
+      expect(results).toEqual([
+        {path: ['users', 0, 'someProperty'], value: undefined},
+        {path: ['users', 1, 'someProperty'], value: undefined},
+        {path: ['users', 2, 'someProperty'], value: undefined},
+        {path: ['users', 3, 'someProperty'], value: undefined},
+      ])
     })
 
     test('returns empty when trying to slice on non-array', () => {
@@ -658,9 +673,12 @@ describe('Match Function', () => {
       expect(results).toHaveLength(0) // Cannot slice an object
     })
 
-    test('returns empty when trying to index on non-array/object', () => {
+    test('yields undefined when trying to index on non-array/object', () => {
       const results = Array.from(jsonMatch(testData, parse('config.version[0]')))
-      expect(results).toHaveLength(0) // Cannot index a string
+      expect(results).toHaveLength(1)
+      const {value, path} = results[0]
+      expect(value).toBe(undefined)
+      expect(path).toEqual(['config', 'version', 0])
     })
 
     test('handles null literal as a standalone expression', () => {
@@ -769,12 +787,15 @@ describe('Match Function', () => {
       }
 
       const results = Array.from(jsonMatch(optionalData, parse('users.email')))
-      expect(results).toHaveLength(2) // Only Alice and Carol have email
-      const [first, second] = results
+      // Only Alice and Carol have email but Bob will match with `undefined`
+      expect(results).toHaveLength(3)
+      const [first, second, third] = results
       expect(first.value).toBe('alice@example.com')
       expect(first.path).toEqual(['users', 0, 'email'])
-      expect(second.value).toBe('carol@example.com')
-      expect(second.path).toEqual(['users', 2, 'email'])
+      expect(second.value).toBe(undefined)
+      expect(second.path).toEqual(['users', 1, 'email'])
+      expect(third.value).toBe('carol@example.com')
+      expect(third.path).toEqual(['users', 2, 'email'])
     })
 
     test('evaluates identifier against array items with keyed objects', () => {
@@ -803,30 +824,23 @@ describe('Match Function', () => {
       expect(results).toHaveLength(0)
     })
 
-    test('evaluates identifier against array with non-object items', () => {
-      const primitiveArrayData = {
-        items: ['string1', 'string2', 'string3'],
-      }
-
-      // When evaluating 'length' against an array of strings, it should not work
-      // because strings are not objects and don't have properties accessible via identifier
-      const results = Array.from(jsonMatch(primitiveArrayData, parse('items.length')))
-      expect(results).toHaveLength(0) // No results because strings don't have 'length' as a property
-    })
-
     test('evaluates identifier against array with mixed primitive and object items', () => {
       const mixedArrayData = {
         items: ['string1', {name: 'Alice', age: 25}, 'string2', {name: 'Bob', age: 30}],
       }
 
-      // Should only match objects that have the 'name' property
+      // Should match all items: undefined for strings, actual values for objects
       const results = Array.from(jsonMatch(mixedArrayData, parse('items.name')))
-      expect(results).toHaveLength(2)
-      const [first, second] = results
-      expect(first.value).toBe('Alice')
-      expect(first.path).toEqual(['items', 1, 'name'])
-      expect(second.value).toBe('Bob')
-      expect(second.path).toEqual(['items', 3, 'name'])
+      expect(results).toHaveLength(4)
+      const [first, second, third, fourth] = results
+      expect(first.value).toBe(undefined)
+      expect(first.path).toEqual(['items', 0, 'name'])
+      expect(second.value).toBe('Alice')
+      expect(second.path).toEqual(['items', 1, 'name'])
+      expect(third.value).toBe(undefined)
+      expect(third.path).toEqual(['items', 2, 'name'])
+      expect(fourth.value).toBe('Bob')
+      expect(fourth.path).toEqual(['items', 3, 'name'])
     })
 
     test('evaluates identifier against array with null and undefined items', () => {
@@ -835,14 +849,18 @@ describe('Match Function', () => {
       }
 
       const results = Array.from(jsonMatch(nullArrayData, parse('items.name')))
-      expect(results).toHaveLength(3) // Only the objects with name property
-      const [first, second, third] = results
+      expect(results).toHaveLength(5) // All items: objects with values and null/undefined with undefined
+      const [first, second, third, fourth, fifth] = results
       expect(first.value).toBe('Alice')
       expect(first.path).toEqual(['items', 0, 'name'])
-      expect(second.value).toBe('Bob')
-      expect(second.path).toEqual(['items', 2, 'name'])
-      expect(third.value).toBe('Carol')
-      expect(third.path).toEqual(['items', 4, 'name'])
+      expect(second.value).toBe(undefined)
+      expect(second.path).toEqual(['items', 1, 'name'])
+      expect(third.value).toBe('Bob')
+      expect(third.path).toEqual(['items', 2, 'name'])
+      expect(fourth.value).toBe(undefined)
+      expect(fourth.path).toEqual(['items', 3, 'name'])
+      expect(fifth.value).toBe('Carol')
+      expect(fifth.path).toEqual(['items', 4, 'name'])
     })
 
     test('evaluates identifier against array with deeply nested objects', () => {
