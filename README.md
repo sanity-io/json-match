@@ -10,6 +10,7 @@
 - [Core Concepts](#core-concepts)
   - [What is JSONMatch?](#what-is-jsonmatch)
   - [Lazy evaluation](#lazy-evaluation)
+  - [Handling undefined values](#handling-undefined-values)
   - [Special `_key` handling](#special-_key-handling)
   - [Path manipulation](#path-manipulation)
 - [JSONMatch Language Reference](#jsonmatch-language-reference)
