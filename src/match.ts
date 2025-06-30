@@ -213,9 +213,10 @@ function* evaluateSegment({
         return
       }
 
-      if (!isRecord(value)) return
-      if (!(segment.name in value)) return
-      yield {value: value[segment.name], path: [...path, segment.name]}
+      yield {
+        value: isRecord(value) ? value[segment.name] : undefined,
+        path: [...path, segment.name],
+      }
       return
     }
 
@@ -292,15 +293,8 @@ function* evaluateSubscript({
 
       // handle number nodes in subscripts as array indices
       case 'Number': {
-        if (!Array.isArray(value)) continue
-
-        const item = value.at(element.value)
-        if (typeof item !== 'undefined') {
-          let index = element.value
-          if (index < 0) index = value.length + index
-          index = Math.max(0, Math.min(index, value.length))
-          yield itemEntry(item, path, index)
-        }
+        const item = Array.isArray(value) ? value.at(element.value) : undefined
+        yield itemEntry(item, path, element.value)
         continue
       }
 
@@ -331,9 +325,12 @@ function* evaluateExistence({
     return
   }
 
-  const first = evaluatePath({expr: existence.base, path, value}).next()
-  if (first.done) return
-  yield {value, path}
+  for (const candidate of evaluatePath({expr: existence.base, path, value})) {
+    if (typeof candidate.value !== 'undefined') {
+      yield {value, path}
+      return
+    }
+  }
 }
 
 function getKeyFromComparison({operator, left, right}: ComparisonNode) {
@@ -351,6 +348,12 @@ const isKeyPath = (node: ExprNode): node is PathNode => {
   if (node.recursive) return false
   if (node.segment.type !== 'Identifier') return false
   return node.segment.name === '_key'
+}
+
+function* removeUndefinedMatches(values: Iterable<MatchEntry>) {
+  for (const item of values) {
+    if (typeof item.value !== 'undefined') yield item
+  }
 }
 
 function* evaluateComparison({
@@ -374,8 +377,12 @@ function* evaluateComparison({
     return
   }
 
-  const leftResult = evaluateExpression({expr: comparison.left, value, path}).next()
-  const rightResult = evaluateExpression({expr: comparison.right, value, path}).next()
+  const leftResult = removeUndefinedMatches(
+    evaluateExpression({expr: comparison.left, value, path}),
+  ).next()
+  const rightResult = removeUndefinedMatches(
+    evaluateExpression({expr: comparison.right, value, path}),
+  ).next()
   // ensure left or right yielded at least one value
   if (leftResult.done || rightResult.done) return
   const {value: left} = leftResult.value

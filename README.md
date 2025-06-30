@@ -144,6 +144,79 @@ console.log('Found:', firstMatch.value)
 
 This makes the library suitable for performance-critical tasks where you need to find a single value quickly.
 
+### Handling undefined values
+
+`jsonMatch` yields matches for paths that resolve to `undefined` values, even when traversing through invalid intermediate values. This **exhaustive path traversal** behavior is designed to support both **reading** and **writing** operations in the Sanity ecosystem.
+
+```javascript
+import {jsonMatch} from '@sanity/json-match'
+
+const data = {
+  user: {
+    name: 'Alice',
+    // Note: no 'email' property
+  },
+  posts: [
+    {title: 'First Post'},
+    // Note: no second post at index 1
+  ],
+  version: '1.0.0', // This is a string, not an object
+}
+
+// Accessing non-existent properties yields undefined with the path
+const emailMatches = Array.from(jsonMatch(data, 'user.email'))
+console.log(emailMatches)
+// [{ value: undefined, path: ['user', 'email'] }]
+
+// Accessing out-of-bounds array indices also yields undefined
+const missingPostMatches = Array.from(jsonMatch(data, 'posts[1].title'))
+console.log(missingPostMatches)
+// [{ value: undefined, path: ['posts', 1, 'title'] }]
+
+// Even traversing through non-objects continues until path is exhausted
+const invalidTraversal = Array.from(jsonMatch(data, 'version.major.patch'))
+console.log(invalidTraversal)
+// [{ value: undefined, path: ['version', 'major', 'patch'] }]
+// Note: continues evaluating even though 'version' is a string
+
+// Arrays with mixed types yield undefined for non-objects
+const mixedArray = {
+  items: ['string', {name: 'Alice'}, null, 42],
+}
+const mixedResults = Array.from(jsonMatch(mixedArray, 'items.name'))
+console.log(mixedResults)
+// [
+//   { value: undefined, path: ['items', 0, 'name'] },  // string has no 'name'
+//   { value: 'Alice', path: ['items', 1, 'name'] },    // object has 'name'
+//   { value: undefined, path: ['items', 2, 'name'] },  // null has no 'name'
+//   { value: undefined, path: ['items', 3, 'name'] }   // number has no 'name'
+// ]
+
+// This allows downstream systems to know where values can be set
+const pathsForSetting = Array.from(jsonMatch(data, 'user.profile.settings.theme')).map(
+  (m) => m.path,
+)
+console.log(pathsForSetting)
+// [['user', 'profile', 'settings', 'theme']] - full path even if intermediate values don't exist!
+```
+
+**Why this matters:**
+
+- **For reading**: You can distinguish between non-existent paths and paths that exist but contain `undefined`
+- **For writing**: You get the exact path information needed to set values at locations that don't currently exist, even through multiple levels of missing intermediate values
+- **For consistency**: The same path expression works for both reading existing values and determining where new values can be written
+- **For completeness**: Arrays with mixed types (objects, primitives, null) yield results for all elements, with `undefined` for non-objects
+
+**How exhaustive traversal works:**
+
+1. **Property access** (`obj.prop`): Always yields a result, even if `obj` is not an object
+2. **Array indexing** (`arr[0]`): Always yields a result, even if `arr` is not an array or index is out of bounds
+3. **Deep paths** (`a.b.c.d`): Continues evaluating the entire path even if intermediate segments are invalid
+4. **Array iteration** (`arr.prop`): Applies property access to every array element, yielding `undefined` for non-objects
+
+> [!NOTE]  
+> This exhaustive behavior only applies to property access and array indexing. Constraint-based filtering (like `[active == true]`) will still skip items that don't match the constraint, and existence checks (like `[email?]`) will not match `undefined` values.
+
 ### Special `_key` handling
 
 In Sanity documents, it's good practice to add a unique `_key` property to objects inside an array. This gives each object a stable identifier that doesn't change even if the array is reordered.
